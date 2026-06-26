@@ -1,0 +1,29 @@
+Browser
+
+↓
+
+Next.js
+
+↓
+
+FastAPI
+
+↓
+
+Service Layer
+
+↓
+
+Repository Layer
+
+↓
+
+MongoDB
+
+↓
+
+S3 Storage Interface
+
+↓
+
+MinIO / AWS / GCS
