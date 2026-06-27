@@ -19,5 +19,6 @@ Own your cloud. Own your data.
 * 📱 Progressive Web App (PWA)
 * 🐳 Docker-based deployment
 * 🌍 Open source and self-hostable
+* Easy to use
 
 > **Project Status:** 🚧 Active Development
