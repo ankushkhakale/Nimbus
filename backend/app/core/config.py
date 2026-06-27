@@ -1,10 +1,19 @@
-import os
-from dotenv import load_dotenv
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from functools import lru_cache
 
-load_dotenv()
+class Settings(BaseSettings):
+    PROJECT_NAME: str = "Nimbus"
+    VERSION: str = "0.1.0"
+    API_V1_STR: str = "/api/v1"
+    
+    # MongoDB Settings
+    MONGODB_URL: str = "mongodb://localhost:27017"
+    MONGODB_DB_NAME: str = "nimbus"
+    
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-class Settings:
-    MONGO_URI: str = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-    DATABASE_NAME: str = "nimbus"
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
 
-settings = Settings()
+settings = get_settings()
