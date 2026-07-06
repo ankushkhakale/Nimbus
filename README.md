@@ -20,3 +20,5 @@ Own your cloud. Own your data.
 * Easy to use
 
 > **Project Status:** 🚧 Active Development
+
+project may delay due to college assignments and exams 😭
