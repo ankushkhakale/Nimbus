@@ -1,10 +1,54 @@
+import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from .api import health
+from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="Nimbus API")
+from app.core.config import settings
+from app.api.api_router import api_router
+from app.database.mongodb import connect_to_mongo, close_mongo_connection
 
-app.include_router(health.router)
+# Configure basic logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
-@app.get("/")
-def read_root():
-    return {"message": "Welcome to Nimbus API"}
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for FastAPI app.
+    Handles startup and shutdown events, such as DB connections.
+    """
+    logger.info(f"Starting up {settings.PROJECT_NAME} backend...")
+    await connect_to_mongo()
+    yield
+    logger.info(f"Shutting down {settings.PROJECT_NAME} backend...")
+    await close_mongo_connection()
+
+def create_app() -> FastAPI:
+    """
+    Application factory.
+    """
+    application = FastAPI(
+        title=settings.PROJECT_NAME,
+        version=settings.VERSION,
+        openapi_url=f"{settings.API_V1_STR}/openapi.json",
+        lifespan=lifespan,
+    )
+
+    # Configure CORS middleware
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Adjust for production
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Include API router
+    application.include_router(api_router, prefix=settings.API_V1_STR)
+
+    return application
+
+app = create_app()

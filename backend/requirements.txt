@@ -1,4 +1,4 @@
-fastapi
-uvicorn
-pymongo
-python-dotenv
+fastapi[standard]>=0.110.0
+uvicorn>=0.29.0
+motor>=3.3.2
+pydantic-settings>=2.2.1
