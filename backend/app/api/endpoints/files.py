@@ -17,6 +17,7 @@ from app.schemas.files import (
     UpdateItemRequest,
     UploadUrlRequest,
     UploadUrlResponse,
+    UsageResponse,
 )
 from app.services.file_service import FileService
 
@@ -31,6 +32,17 @@ async def list_items(
 ) -> list[ItemResponse]:
     items = await files.list_children(user.id, parent_id)
     return [ItemResponse.from_item(i) for i in items]
+
+
+@router.get("/usage", response_model=UsageResponse)
+async def read_usage(
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> UsageResponse:
+    stored, file_count, folder_count = await files.usage(user.id)
+    return UsageResponse(
+        bytes_stored=stored, file_count=file_count, folder_count=folder_count
+    )
 
 
 @router.post("/folders", response_model=ItemResponse, status_code=status.HTTP_201_CREATED)

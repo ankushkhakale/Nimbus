@@ -145,6 +145,32 @@ class ItemRepository:
             frontier = [i.id for i in level if i.is_folder]
         return found
 
+    async def usage(self, user_id: str) -> tuple[int, int, int]:
+        """Return (bytes_stored, file_count, folder_count) for a user.
+
+        Only READY files count toward bytes: a pending item has an item
+        row but no confirmed object in S3, so counting it would overstate
+        usage.
+        """
+        pipeline = [
+            {"$match": {"user_id": user_id}},
+            {
+                "$group": {
+                    "_id": "$type",
+                    "count": {"$sum": 1},
+                    "bytes": {"$sum": {"$ifNull": ["$size", 0]}},
+                }
+            },
+        ]
+        totals = {doc["_id"]: doc async for doc in self._collection.aggregate(pipeline)}
+        files = totals.get(ItemType.FILE.value, {})
+        folders = totals.get(ItemType.FOLDER.value, {})
+        return (
+            int(files.get("bytes", 0)),
+            int(files.get("count", 0)),
+            int(folders.get("count", 0)),
+        )
+
     async def name_exists(self, user_id: str, parent_id: str | None, name: str) -> bool:
         return await self._collection.count_documents(
             {"user_id": user_id, "parent_id": parent_id, "name": name}, limit=1

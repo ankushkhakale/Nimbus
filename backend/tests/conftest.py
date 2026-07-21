@@ -106,6 +106,12 @@ class FakeItemRepository:
         del self._items[item_id]
         return True
 
+    async def usage(self, user_id: str) -> tuple[int, int, int]:
+        mine = [i for i in self._items.values() if i.user_id == user_id]
+        files = [i for i in mine if i.type is ItemType.FILE]
+        folders = [i for i in mine if i.type is ItemType.FOLDER]
+        return sum(i.size or 0 for i in files), len(files), len(folders)
+
     async def descendants(self, user_id: str, folder_id: str) -> list[Item]:
         found, frontier = [], [folder_id]
         while frontier:

@@ -88,6 +88,18 @@ class ItemResponse(BaseModel):
         )
 
 
+class UsageResponse(BaseModel):
+    """Storage consumed by the requesting user.
+
+    There is no quota: S3 bills per GB rather than capping. The client
+    shows consumption and estimated cost instead of a fake limit.
+    """
+
+    bytes_stored: int
+    file_count: int
+    folder_count: int
+
+
 class UploadUrlResponse(BaseModel):
     item: ItemResponse
     upload_url: str

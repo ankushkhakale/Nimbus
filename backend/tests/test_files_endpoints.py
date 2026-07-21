@@ -219,6 +219,45 @@ def test_delete_folder_removes_whole_subtree(client, auth_headers, fake_storage,
     assert client.get(FILES, headers=h).json() == []
 
 
+# --- usage --------------------------------------------------------------
+
+def test_usage_is_zero_for_new_account(client, auth_headers):
+    h = auth_headers()
+    assert client.get(f"{FILES}/usage", headers=h).json() == {
+        "bytes_stored": 0, "file_count": 0, "folder_count": 0,
+    }
+
+
+def test_usage_counts_only_completed_uploads(client, auth_headers, fake_storage,
+                                              fake_item_repo):
+    """A pending item has no confirmed object, so it must not add bytes."""
+    h = auth_headers()
+    _folder(client, h, "F")
+    done = _upload(client, h, "done.txt").json()["item"]["id"]
+    _upload(client, h, "pending.txt")  # never completed
+
+    fake_storage.uploaded[fake_item_repo._items[done].s3_key] = 500
+    client.post(f"{FILES}/{done}/complete", headers=h)
+
+    body = client.get(f"{FILES}/usage", headers=h).json()
+    assert body == {"bytes_stored": 500, "file_count": 2, "folder_count": 1}
+
+
+def test_usage_is_per_user(client, auth_headers, fake_storage, fake_item_repo):
+    a = auth_headers("a@example.com")
+    b = auth_headers("b@example.com")
+    item = _upload(client, a, "a.txt").json()["item"]["id"]
+    fake_storage.uploaded[fake_item_repo._items[item].s3_key] = 900
+    client.post(f"{FILES}/{item}/complete", headers=a)
+
+    assert client.get(f"{FILES}/usage", headers=a).json()["bytes_stored"] == 900
+    assert client.get(f"{FILES}/usage", headers=b).json()["bytes_stored"] == 0
+
+
+def test_usage_requires_auth(client):
+    assert client.get(f"{FILES}/usage").status_code == 401
+
+
 # --- cross-user isolation ----------------------------------------------
 
 def test_user_cannot_list_another_users_items(client, auth_headers):

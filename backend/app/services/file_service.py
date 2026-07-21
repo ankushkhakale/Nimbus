@@ -74,6 +74,9 @@ class FileService:
         await self._validate_parent(user_id, parent_id)
         return await self._items.list_children(user_id, parent_id)
 
+    async def usage(self, user_id: str) -> tuple[int, int, int]:
+        return await self._items.usage(user_id)
+
     async def create_folder(self, user_id: str, name: str, parent_id: str | None) -> Item:
         await self._validate_parent(user_id, parent_id)
         return await self._items.create_folder(user_id, name, parent_id)

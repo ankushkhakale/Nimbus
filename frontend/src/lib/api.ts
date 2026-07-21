@@ -105,6 +105,12 @@ export interface UploadUrlResponse {
   expires_in: number;
 }
 
+export interface Usage {
+  bytes_stored: number;
+  file_count: number;
+  folder_count: number;
+}
+
 // --- auth ----------------------------------------------------------------
 
 export const auth = {
@@ -123,6 +129,8 @@ export const auth = {
 // --- files ---------------------------------------------------------------
 
 export const files = {
+  usage: (token: string) => request<Usage>("/files/usage", { token }),
+
   list: (token: string, parentId?: string | null) =>
     request<Item[]>(`/files${parentId ? `?parent_id=${encodeURIComponent(parentId)}` : ""}`, {
       token,
