@@ -1,5 +1,7 @@
 import React from 'react';
 
+import { UserMenu } from '@/components/UserMenu';
+
 export default function Home() {
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
@@ -73,9 +75,7 @@ export default function Home() {
               style={{ background: 'transparent', border: 'none', color: 'var(--text-high)', width: '100%', outline: 'none', fontSize: '14px' }} 
             />
           </div>
-          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ fontWeight: 600 }}>AK</span>
-          </div>
+          <UserMenu />
         </header>
 
         {/* Dashboard Grid */}
