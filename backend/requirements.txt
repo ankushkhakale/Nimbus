@@ -1,7 +1,12 @@
-fastapi[standard]>=0.110.0
-uvicorn>=0.29.0
-motor>=3.3.2
+# Production runtime dependencies.
+# Deliberately plain `fastapi`, not `fastapi[standard]`: the standard
+# extra pulls in uvicorn/uvloop/watchfiles and the fastapi-cli tooling
+# (~28MB) which Mangum never uses on Lambda. Local dev gets them from
+# requirements-dev.txt instead.
+fastapi>=0.110.0
+email-validator>=2.1.0
 pydantic-settings>=2.2.1
+motor>=3.3.2
 python-jose[cryptography]>=3.3.0
 bcrypt>=4.1.0
 boto3>=1.34.0

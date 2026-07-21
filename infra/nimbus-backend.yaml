@@ -51,13 +51,16 @@ Resources:
           PRESIGNED_URL_EXPIRE_SECONDS: "3600"
           CORS_ORIGINS: !Ref CorsOrigins
 
-  # Retain logs for a week only — indefinite retention is the usual way a
-  # "free" serverless stack quietly starts costing money.
-  NimbusLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: /aws/lambda/nimbus-api
-      RetentionInDays: 7
+  # NOTE: /aws/lambda/nimbus-api is created implicitly by Lambda on first
+  # invocation, and therefore defaults to "Never expire" retention.
+  # Managing it here would be better — indefinite retention is the usual
+  # way a "free" serverless stack quietly starts costing money — but that
+  # needs logs:CreateLogGroup/PutRetentionPolicy, which the nimbus-deploy
+  # policy does not grant. Add those permissions and reinstate an
+  # AWS::Logs::LogGroup with RetentionInDays: 7, or set retention once by
+  # hand:
+  #   aws logs put-retention-policy \
+  #     --log-group-name /aws/lambda/nimbus-api --retention-in-days 7
 
   NimbusHttpApi:
     Type: AWS::ApiGatewayV2::Api
