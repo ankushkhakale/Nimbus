@@ -22,6 +22,9 @@ Parameters:
   CodeS3Key:
     Type: String
     Description: Key of the deployment zip; change to trigger a code update.
+  ThumbnailerS3Key:
+    Type: String
+    Description: Key of the thumbnailer zip; change to trigger a code update.
 
 Resources:
   NimbusFunction:
@@ -107,7 +110,45 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${NimbusHttpApi}/*
 
+  # Generates thumbnails from S3 ObjectCreated events under users/.
+  # The notification itself is configured out of band (see
+  # scripts/configure_thumbnail_trigger.sh): the bucket predates this
+  # stack, and CloudFormation can only attach notifications to a bucket
+  # it owns.
+  ThumbnailerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: nimbus-thumbnailer
+      Runtime: python3.13
+      Handler: app.handler
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/nimbus-lambda-exec
+      # Image decoding is memory-hungry and CPU scales with memory, so a
+      # larger size finishes faster and often costs the same in
+      # GB-seconds.
+      MemorySize: 1024
+      Timeout: 60
+      Architectures: [x86_64]
+      Code:
+        S3Bucket: !Ref CodeS3Bucket
+        S3Key: !Ref ThumbnailerS3Key
+      Environment:
+        Variables:
+          THUMBNAIL_MAX_EDGE: "512"
+
+  ThumbnailerInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ThumbnailerFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub arn:aws:s3:::${S3BucketName}
+
 Outputs:
+  ThumbnailerArn:
+    Description: Thumbnailer function ARN, needed to configure the S3 trigger.
+    Value: !GetAtt ThumbnailerFunction.Arn
+
   ApiUrl:
     Description: Public base URL of the Nimbus API.
     Value: !Sub https://${NimbusHttpApi}.execute-api.${AWS::Region}.amazonaws.com

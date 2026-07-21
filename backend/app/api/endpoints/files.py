@@ -14,6 +14,7 @@ from app.schemas.files import (
     CreateFolderRequest,
     DownloadUrlResponse,
     ItemResponse,
+    ThumbnailUrlResponse,
     UpdateItemRequest,
     UploadUrlRequest,
     UploadUrlResponse,
@@ -94,6 +95,18 @@ async def request_download_url(
 ) -> DownloadUrlResponse:
     url, expires_in = await files.download_url(user.id, item_id)
     return DownloadUrlResponse(download_url=url, expires_in=expires_in)
+
+
+@router.get("/{item_id}/thumbnail-url", response_model=ThumbnailUrlResponse)
+async def request_thumbnail_url(
+    item_id: str,
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> ThumbnailUrlResponse:
+    url, is_thumbnail = await files.thumbnail_url(user.id, item_id)
+    return ThumbnailUrlResponse(
+        url=url, is_thumbnail=is_thumbnail, expires_in=settings.PRESIGNED_URL_EXPIRE_SECONDS
+    )
 
 
 @router.patch("/{item_id}", response_model=ItemResponse)

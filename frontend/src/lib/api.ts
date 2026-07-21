@@ -159,6 +159,17 @@ export const files = {
       token,
     }),
 
+  /**
+   * Thumbnail URL for an image. Falls back to the original when no
+   * thumbnail exists yet — generation is asynchronous, so a freshly
+   * uploaded photo has none for a second or two.
+   */
+  thumbnailUrl: (token: string, itemId: string) =>
+    request<{ url: string; is_thumbnail: boolean; expires_in: number }>(
+      `/files/${itemId}/thumbnail-url`,
+      { token }
+    ),
+
   update: (token: string, itemId: string, changes: { name?: string; parent_id?: string | null }) =>
     request<Item>(`/files/${itemId}`, { method: "PATCH", body: changes, token }),
 

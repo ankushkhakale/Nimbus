@@ -55,6 +55,24 @@ def build_user_key(user_id: str, relative_path: str) -> str:
     return user_prefix(user_id) + "/".join(segments)
 
 
+THUMBNAIL_PREFIX = "thumbnails/"
+
+
+def thumbnail_key(object_key: str) -> str:
+    """Map an object key to where its thumbnail lives.
+
+    ``users/{uid}/files/{uuid}`` -> ``thumbnails/{uid}/files/{uuid}.jpg``
+
+    Deriving this instead of storing it keeps the thumbnail Lambda free of
+    any database access — it can compute the destination from the event
+    alone. The separate top-level prefix is what stops the generated
+    thumbnail re-triggering the ObjectCreated notification that made it.
+    """
+    if not object_key.startswith("users/"):
+        raise InvalidObjectKey("Only user objects have thumbnails.")
+    return f"{THUMBNAIL_PREFIX}{object_key[len('users/'):]}.jpg"
+
+
 def is_owned_by(key: str, user_id: str) -> bool:
     """True if `key` lies within `user_id`'s prefix.
 

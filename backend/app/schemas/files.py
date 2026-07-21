@@ -109,3 +109,11 @@ class UploadUrlResponse(BaseModel):
 class DownloadUrlResponse(BaseModel):
     download_url: str
     expires_in: int
+
+
+class ThumbnailUrlResponse(BaseModel):
+    url: str
+    # False when no thumbnail exists yet and the original is served
+    # instead, so the client can avoid caching it as a thumbnail.
+    is_thumbnail: bool
+    expires_in: int

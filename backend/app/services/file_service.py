@@ -14,7 +14,12 @@ from app.core.config import settings
 from app.models.item import Item, ItemType, UploadStatus
 from app.repositories.item_repository import ItemRepository
 from app.storage.base import ObjectStorage
-from app.storage.keys import InvalidObjectKey, build_user_key, is_owned_by
+from app.storage.keys import (
+    InvalidObjectKey,
+    build_user_key,
+    is_owned_by,
+    thumbnail_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +143,28 @@ class FileService:
             settings.PRESIGNED_URL_EXPIRE_SECONDS
         )
 
+    async def thumbnail_url(self, user_id: str, item_id: str) -> tuple[str, bool]:
+        """Presigned URL for an image's thumbnail, or the original.
+
+        Returns (url, is_thumbnail). Thumbnails are produced asynchronously
+        by an S3 event, so one may not exist yet — or ever, if generation
+        failed. Falling back to the original keeps the grid populated
+        instead of showing gaps.
+        """
+        item = await self._require_item(user_id, item_id)
+        if item.is_folder or not item.s3_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Item is not a file."
+            )
+        if not is_owned_by(item.s3_key, user_id):
+            logger.error("Key %s is outside the prefix for user %s", item.s3_key, user_id)
+            raise self._not_found()
+
+        thumb = thumbnail_key(item.s3_key)
+        if self._storage.exists(thumb):
+            return self._storage.download_url(thumb), True
+        return self._storage.download_url(item.s3_key, filename=item.name), False
+
     async def update(
         self, user_id: str, item_id: str, name: str | None, parent_id: str | None, move: bool
     ) -> Item:
@@ -167,6 +194,11 @@ class FileService:
             if node.s3_key and is_owned_by(node.s3_key, user_id):
                 try:
                     self._storage.delete(node.s3_key)
+                    # Thumbnails live outside the user prefix, so nothing
+                    # else would ever collect them; an orphan would sit in
+                    # the bucket costing money indefinitely. Delete is
+                    # idempotent, so a file that never had one is fine.
+                    self._storage.delete(thumbnail_key(node.s3_key))
                 except Exception:
                     logger.exception("Failed deleting object %s", node.s3_key)
 

@@ -33,3 +33,29 @@ rm -f "$OUT"
 (cd "$BUILD_DIR" && zip -qr "$OUT" .)
 
 echo "==> Done: $OUT ($(du -h "$OUT" | cut -f1)), unpacked $(du -sh "$BUILD_DIR" | cut -f1)"
+
+# --- thumbnailer -------------------------------------------------------
+# Built separately: it shares no code with the API and needs only Pillow,
+# so bundling them together would put a 40MB imaging library in the API's
+# cold-start path for no reason.
+THUMB_OUT="${2:-$ROOT/.aws-sam/nimbus-thumbnailer.zip}"
+THUMB_STAGE="$ROOT/.aws-sam/thumbnailer-build"
+
+echo "==> Building thumbnailer"
+rm -rf "$THUMB_STAGE"
+mkdir -p "$THUMB_STAGE"
+# Pillow ships compiled extensions, so wheels must match the Lambda
+# runtime rather than whatever Python is on this machine.
+pip install -q \
+  --platform manylinux2014_x86_64 \
+  --implementation cp \
+  --python-version 3.13 \
+  --only-binary=:all: \
+  --target "$THUMB_STAGE" \
+  -r "$ROOT/thumbnailer/requirements.txt"
+cp "$ROOT/thumbnailer/app.py" "$THUMB_STAGE/app.py"
+find "$THUMB_STAGE" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+
+rm -f "$THUMB_OUT"
+(cd "$THUMB_STAGE" && zip -qr "$THUMB_OUT" .)
+echo "==> Done: $THUMB_OUT ($(du -h "$THUMB_OUT" | cut -f1))"

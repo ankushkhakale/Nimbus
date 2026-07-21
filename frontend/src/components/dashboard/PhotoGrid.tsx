@@ -3,10 +3,10 @@
 /**
  * Google Photos-style date grid.
  *
- * Images are shown via presigned download URLs at full size. There is no
- * thumbnail pipeline yet (that is the S3 ObjectCreated -> Lambda + Pillow
- * step), so this is fine for a handful of photos and will want revisiting
- * before a 90GB library lands.
+ * Tiles request /thumbnail-url, which serves the 512px JPEG produced by
+ * the thumbnailer Lambda. Generation is asynchronous, so the API falls
+ * back to the original for photos whose thumbnail has not landed yet —
+ * the grid stays populated either way, just heavier for a moment.
  */
 
 import React, { useEffect, useState } from "react";
@@ -41,9 +41,9 @@ function PhotoTile({ item }: { item: Item }) {
     if (!token) return;
     let active = true;
     filesApi
-      .downloadUrl(token, item.id)
+      .thumbnailUrl(token, item.id)
       .then((r) => {
-        if (active) setUrl(r.download_url);
+        if (active) setUrl(r.url);
       })
       .catch(() => {
         if (active) setFailed(true);
