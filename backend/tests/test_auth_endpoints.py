@@ -28,6 +28,19 @@ def test_register_duplicate_email_is_rejected(client):
     assert resp.status_code == 409
 
 
+def test_register_reports_409_when_unique_index_rejects_a_race(client, fake_user_repo):
+    """Concurrent registration: the pre-check passes but the unique index
+    fires. Must surface as 409, not a 500."""
+    from pymongo.errors import DuplicateKeyError
+
+    async def racing_create(*args, **kwargs):
+        raise DuplicateKeyError("E11000 duplicate key error: email")
+
+    fake_user_repo.create = racing_create
+    resp = _register(client)
+    assert resp.status_code == 409
+
+
 def test_register_rejects_short_password(client):
     resp = _register(client, password="short")
     assert resp.status_code == 422

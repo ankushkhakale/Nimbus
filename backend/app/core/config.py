@@ -1,5 +1,13 @@
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
+
+# Anchored to this file, not the working directory, so `uvicorn` started
+# from backend/ and from the repo root both load the same .env. On Lambda
+# there is no .env at all — config comes from environment variables.
+_BACKEND_DIR = Path(__file__).resolve().parents[2]
+_ENV_FILES = (_BACKEND_DIR.parent / ".env", _BACKEND_DIR / ".env")
+
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Nimbus"
@@ -25,7 +33,9 @@ class Settings(BaseSettings):
     S3_ENDPOINT_URL: str = ""
     PRESIGNED_URL_EXPIRE_SECONDS: int = 3600
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=_ENV_FILES, env_file_encoding="utf-8", extra="ignore"
+    )
 
 @lru_cache
 def get_settings() -> Settings:
