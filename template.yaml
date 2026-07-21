@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >-
+  Build definition for `sam build`, which bundles dependencies for the
+  Lambda runtime inside a container.
+
+  NOT used for deployment. Deploying through SAM needs
+  cloudformation:CreateChangeSet on the AWS-owned transform ARN
+  (arn:aws:cloudformation:<region>:aws:transform/Serverless-2016-10-31),
+  which the nimbus-deploy policy deliberately does not grant — its
+  CloudFormation access is scoped to stack/nimbus-*. The deployed stack
+  is plain CloudFormation in infra/nimbus-backend.yaml. Keep the Handler,
+  Runtime and CodeUri here in step with that file.
+
+Parameters:
+  MongoDbUrl:
+    Type: String
+    NoEcho: true
+    Description: Atlas SRV connection string.
+  JwtSecret:
+    Type: String
+    NoEcho: true
+    Description: HS256 signing key for access tokens.
+  S3BucketName:
+    Type: String
+    Description: Bucket holding user files.
+  CorsOrigins:
+    Type: String
+    Default: http://localhost:3000
+    Description: Comma-separated browser origins. Never "*".
+
+Globals:
+  Function:
+    Runtime: python3.13
+    # Lambda allocates CPU proportionally to memory; 512MB keeps cold
+    # starts reasonable while staying well inside the free tier's
+    # 400,000 GB-seconds per month at this traffic level.
+    MemorySize: 512
+    Timeout: 30
+    Architectures: [x86_64]
+
+Resources:
+  NimbusHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: $default
+      # CORS is handled by FastAPI's middleware. Configuring it here as
+      # well would emit duplicate Access-Control-Allow-Origin headers,
+      # which browsers reject.
+
+  NimbusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: nimbus-api
+      CodeUri: backend/
+      Handler: app.lambda_handler.handler
+      Description: Nimbus FastAPI application.
+      # Pre-created out of band so deploys need no IAM write permissions.
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/nimbus-lambda-exec
+      Environment:
+        Variables:
+          MONGODB_URL: !Ref MongoDbUrl
+          MONGODB_DB_NAME: nimbus
+          JWT_SECRET_KEY: !Ref JwtSecret
+          JWT_ALGORITHM: HS256
+          ACCESS_TOKEN_EXPIRE_MINUTES: 1440
+          S3_BUCKET_NAME: !Ref S3BucketName
+          S3_REGION: !Ref AWS::Region
+          PRESIGNED_URL_EXPIRE_SECONDS: 3600
+          CORS_ORIGINS: !Ref CorsOrigins
+      Events:
+        ApiRoot:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref NimbusHttpApi
+            Path: /
+            Method: ANY
+        ApiProxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref NimbusHttpApi
+            Path: /{proxy+}
+            Method: ANY
+
+Outputs:
+  ApiUrl:
+    Description: Public base URL of the Nimbus API.
+    Value: !Sub https://${NimbusHttpApi}.execute-api.${AWS::Region}.amazonaws.com
+  FunctionName:
+    Value: !Ref NimbusFunction

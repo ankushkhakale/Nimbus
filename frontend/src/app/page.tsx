@@ -4,7 +4,7 @@ import React, { useEffect } from 'react';
 import Link from 'next/link';
 import { 
   Cloud, Shield, Search, Zap, CheckCircle2, 
-  ArrowRight, Smartphone, Lock, HardDrive, 
+  ArrowRight, Smartphone, HardDrive, 
   Share2, ChevronRight, PlayCircle
 } from 'lucide-react';
 
@@ -39,8 +39,9 @@ export default function LandingPage() {
       <div style={{
         position: 'absolute', top: '40%', right: '-5%', width: '500px', height: '500px',
         background: 'radial-gradient(circle, rgba(236,72,153,0.1) 0%, rgba(0,0,0,0) 70%)',
-        borderRadius: '50%', filter: 'blur(60px)', zIndex: -1, pointerEvents: 'none'
-      }} className="animate-float" style={{ animationDelay: '-3s' }}></div>
+        borderRadius: '50%', filter: 'blur(60px)', zIndex: -1, pointerEvents: 'none',
+        animationDelay: '-3s'
+      }} className="animate-float"></div>
 
       {/* Navbar */}
       <header style={{ 
@@ -168,7 +169,7 @@ export default function LandingPage() {
         {/* Bento Grid Features */}
         <section id="features" className="container" style={{ marginBottom: '160px' }}>
           <div style={{ textAlign: 'center', marginBottom: '64px' }}>
-            <h2 style={{ fontSize: '48px', marginBottom: '16px' }}>Everything you need. <span className="gradient-text-alt">Nothing you don't.</span></h2>
+            <h2 style={{ fontSize: '48px', marginBottom: '16px' }}>Everything you need. <span className="gradient-text-alt">Nothing you don&apos;t.</span></h2>
             <p style={{ fontSize: '20px', color: 'var(--text-med)', maxWidth: '600px', margin: '0 auto' }}>
               We rebuilt cloud storage from the ground up to be smart, secure, and incredibly fast.
             </p>
@@ -182,7 +183,7 @@ export default function LandingPage() {
               </div>
               <h3 style={{ fontSize: '32px', marginBottom: '16px' }}>Semantic AI Search</h3>
               <p style={{ fontSize: '18px', color: 'var(--text-med)', maxWidth: '80%' }}>
-                Don't remember the file name? Just describe what's inside it or what it looks like. Our embedded AI understands context and finds your files instantly.
+                Don&apos;t remember the file name? Just describe what&apos;s inside it or what it looks like. Our embedded AI understands context and finds your files instantly.
               </p>
               <div style={{ marginTop: 'auto', alignSelf: 'flex-end', width: '80%', height: '100px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px 12px 0 0', border: '1px solid rgba(255,255,255,0.05)', borderBottom: 'none' }}></div>
             </div>

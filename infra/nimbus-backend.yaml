@@ -1,0 +1,156 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Nimbus backend — FastAPI on Lambda behind an HTTP API Gateway.
+  Native CloudFormation (no SAM transform) so deploys need only
+  cloudformation permissions scoped to stack/nimbus-*.
+
+Parameters:
+  MongoDbUrl:
+    Type: String
+    NoEcho: true
+  JwtSecret:
+    Type: String
+    NoEcho: true
+  S3BucketName:
+    Type: String
+  CorsOrigins:
+    Type: String
+    Default: http://localhost:3000
+  CodeS3Bucket:
+    Type: String
+    Description: Bucket holding the deployment zip.
+  CodeS3Key:
+    Type: String
+    Description: Key of the deployment zip; change to trigger a code update.
+  ThumbnailerS3Key:
+    Type: String
+    Description: Key of the thumbnailer zip; change to trigger a code update.
+
+Resources:
+  NimbusFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: nimbus-api
+      Runtime: python3.13
+      Handler: app.lambda_handler.handler
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/nimbus-lambda-exec
+      # Lambda scales CPU with memory; 512MB keeps cold starts tolerable
+      # while staying far inside the free tier's 400,000 GB-seconds.
+      MemorySize: 512
+      Timeout: 30
+      Architectures: [x86_64]
+      Code:
+        S3Bucket: !Ref CodeS3Bucket
+        S3Key: !Ref CodeS3Key
+      Environment:
+        Variables:
+          MONGODB_URL: !Ref MongoDbUrl
+          MONGODB_DB_NAME: nimbus
+          JWT_SECRET_KEY: !Ref JwtSecret
+          JWT_ALGORITHM: HS256
+          ACCESS_TOKEN_EXPIRE_MINUTES: "1440"
+          S3_BUCKET_NAME: !Ref S3BucketName
+          S3_REGION: !Ref AWS::Region
+          PRESIGNED_URL_EXPIRE_SECONDS: "3600"
+          CORS_ORIGINS: !Ref CorsOrigins
+
+  # NOTE: /aws/lambda/nimbus-api is created implicitly by Lambda on first
+  # invocation, and therefore defaults to "Never expire" retention.
+  # Managing it here would be better — indefinite retention is the usual
+  # way a "free" serverless stack quietly starts costing money — but that
+  # needs logs:CreateLogGroup/PutRetentionPolicy, which the nimbus-deploy
+  # policy does not grant. Add those permissions and reinstate an
+  # AWS::Logs::LogGroup with RetentionInDays: 7, or set retention once by
+  # hand:
+  #   aws logs put-retention-policy \
+  #     --log-group-name /aws/lambda/nimbus-api --retention-in-days 7
+
+  NimbusHttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: nimbus-api
+      ProtocolType: HTTP
+      # CORS is handled by FastAPI's middleware; configuring it here too
+      # would emit duplicate headers, which browsers reject.
+
+  NimbusIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref NimbusHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${NimbusFunction.Arn}/invocations
+      PayloadFormatVersion: "2.0"
+
+  NimbusRouteRoot:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref NimbusHttpApi
+      RouteKey: ANY /
+      Target: !Sub integrations/${NimbusIntegration}
+
+  NimbusRouteProxy:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref NimbusHttpApi
+      RouteKey: ANY /{proxy+}
+      Target: !Sub integrations/${NimbusIntegration}
+
+  NimbusStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref NimbusHttpApi
+      StageName: $default
+      AutoDeploy: true
+
+  NimbusInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref NimbusFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${NimbusHttpApi}/*
+
+  # Generates thumbnails from S3 ObjectCreated events under users/.
+  # The notification itself is configured out of band (see
+  # scripts/configure_thumbnail_trigger.sh): the bucket predates this
+  # stack, and CloudFormation can only attach notifications to a bucket
+  # it owns.
+  ThumbnailerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: nimbus-thumbnailer
+      Runtime: python3.13
+      Handler: app.handler
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/nimbus-lambda-exec
+      # Image decoding is memory-hungry and CPU scales with memory, so a
+      # larger size finishes faster and often costs the same in
+      # GB-seconds.
+      MemorySize: 1024
+      Timeout: 60
+      Architectures: [x86_64]
+      Code:
+        S3Bucket: !Ref CodeS3Bucket
+        S3Key: !Ref ThumbnailerS3Key
+      Environment:
+        Variables:
+          THUMBNAIL_MAX_EDGE: "512"
+
+  ThumbnailerInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ThumbnailerFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub arn:aws:s3:::${S3BucketName}
+
+Outputs:
+  ThumbnailerArn:
+    Description: Thumbnailer function ARN, needed to configure the S3 trigger.
+    Value: !GetAtt ThumbnailerFunction.Arn
+
+  ApiUrl:
+    Description: Public base URL of the Nimbus API.
+    Value: !Sub https://${NimbusHttpApi}.execute-api.${AWS::Region}.amazonaws.com
+  FunctionName:
+    Value: !Ref NimbusFunction

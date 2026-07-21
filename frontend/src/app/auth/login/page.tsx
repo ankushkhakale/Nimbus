@@ -2,16 +2,34 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { Mail, Lock, ArrowRight, Github } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Mail, Lock, ArrowRight } from 'lucide-react';
+
+import { useAuth, errorMessage } from '@/lib/auth-context';
+import { FormError } from '@/components/FormError';
+import { GithubIcon } from '@/components/GithubIcon';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const { login } = useAuth();
+  const router = useRouter();
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Connect to FastAPI backend for login
-    console.log('Logging in with:', email);
+    setError(null);
+    setSubmitting(true);
+    try {
+      await login(email, password);
+      router.push('/dashboard');
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -24,6 +42,8 @@ export default function LoginPage() {
       </div>
 
       <form onSubmit={handleLogin}>
+        <FormError message={error} />
+
         <div className="form-group">
           <label className="form-label" htmlFor="email">Email address</label>
           <div style={{ position: 'relative' }}>
@@ -63,8 +83,12 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <button type="submit" className="btn-submit">
-          Sign In <ArrowRight size={18} style={{ marginLeft: '8px', verticalAlign: 'middle', display: 'inline-block' }} />
+        <button type="submit" className="btn-submit" disabled={submitting}>
+          {submitting ? 'Signing in…' : (
+            <>
+              Sign In <ArrowRight size={18} style={{ marginLeft: '8px', verticalAlign: 'middle', display: 'inline-block' }} />
+            </>
+          )}
         </button>
       </form>
 
@@ -82,13 +106,13 @@ export default function LoginPage() {
         </button>
         
         <button type="button" className="btn-oauth">
-          <Github size={20} />
+          <GithubIcon size={20} />
           Sign in with GitHub
         </button>
       </div>
 
       <div style={{ textAlign: 'center', marginTop: '24px', fontSize: '14px', color: 'var(--text-med)' }}>
-        Don't have an account?{' '}
+        Don&apos;t have an account?{' '}
         <Link href="/auth/register" style={{ color: 'white', fontWeight: 600 }}>
           Create one now
         </Link>

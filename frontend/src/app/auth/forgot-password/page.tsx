@@ -4,15 +4,30 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { Mail, ArrowLeft, Send } from 'lucide-react';
 
+import { auth } from '@/lib/api';
+import { errorMessage } from '@/lib/auth-context';
+import { FormError } from '@/components/FormError';
+
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleResetPassword = (e: React.FormEvent) => {
+  const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Connect to FastAPI backend for password reset
-    console.log('Requesting password reset for:', email);
-    setIsSubmitted(true);
+    setError(null);
+    setSubmitting(true);
+    try {
+      await auth.forgotPassword(email);
+      // The API answers identically whether or not the address is
+      // registered, so this confirmation reveals nothing either way.
+      setIsSubmitted(true);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -20,12 +35,13 @@ export default function ForgotPasswordPage() {
       <div style={{ textAlign: 'center', marginBottom: '32px' }}>
         <h1 style={{ fontSize: '32px', marginBottom: '8px' }}>Reset Password</h1>
         <p style={{ color: 'var(--text-med)', fontSize: '15px' }}>
-          Enter your email and we'll send you a recovery link
+          Enter your email and we&apos;ll send you a recovery link
         </p>
       </div>
 
       {!isSubmitted ? (
         <form onSubmit={handleResetPassword}>
+          <FormError message={error} />
           <div className="form-group" style={{ marginBottom: '32px' }}>
             <label className="form-label" htmlFor="email">Email address</label>
             <div style={{ position: 'relative' }}>
@@ -43,8 +59,8 @@ export default function ForgotPasswordPage() {
             </div>
           </div>
 
-          <button type="submit" className="btn-submit">
-            Send Recovery Link <Send size={16} style={{ marginLeft: '8px', verticalAlign: 'middle', display: 'inline-block' }} />
+          <button type="submit" className="btn-submit" disabled={submitting}>
+            {submitting ? 'Sending…' : <>Send Recovery Link <Send size={16} style={{ marginLeft: '8px', verticalAlign: 'middle', display: 'inline-block' }} /></>}
           </button>
         </form>
       ) : (

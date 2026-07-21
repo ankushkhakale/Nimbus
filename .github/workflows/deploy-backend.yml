@@ -1,0 +1,140 @@
+name: Deploy backend
+
+# Delivers requirements.md §2.6 — a laptop's only job is writing code and
+# `git push`. Merging to main is what ships.
+#
+# SETUP REQUIRED before this can run. It authenticates to AWS with OIDC,
+# so GitHub receives a short-lived token per run and no AWS access key is
+# ever stored as a secret. One-time, from CloudShell as an admin:
+#
+#   # 1. Trust GitHub's OIDC issuer (skip if it already exists)
+#   aws iam create-open-id-connect-provider \
+#     --url https://token.actions.githubusercontent.com \
+#     --client-id-list sts.amazonaws.com \
+#     --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1
+#
+#   # 2. Role assumable only by this repo
+#   ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+#   cat > trust.json <<EOF
+#   {"Version":"2012-10-17","Statement":[{
+#     "Effect":"Allow",
+#     "Principal":{"Federated":"arn:aws:iam::${ACCOUNT}:oidc-provider/token.actions.githubusercontent.com"},
+#     "Action":"sts:AssumeRoleWithWebIdentity",
+#     "Condition":{
+#       "StringEquals":{"token.actions.githubusercontent.com:aud":"sts.amazonaws.com"},
+#       "StringLike":{"token.actions.githubusercontent.com:sub":"repo:ankushkhakale/Nimbus:*"}
+#     }}]}
+#   EOF
+#   aws iam create-role --role-name nimbus-github-deploy \
+#     --assume-role-policy-document file://trust.json
+#   aws iam attach-role-policy --role-name nimbus-github-deploy \
+#     --policy-arn arn:aws:iam::${ACCOUNT}:policy/NimbusDeploy
+#
+#   # 3. Also needs logs: permissions the NimbusDeploy policy lacks, if the
+#   #    log group is ever managed by the stack.
+#
+# Then add repository variables (Settings -> Secrets and variables ->
+# Actions -> Variables):
+#   AWS_DEPLOY_ROLE_ARN   arn:aws:iam::<account>:role/nimbus-github-deploy
+#   S3_BUCKET_NAME        nimbus-storage-<account>
+#   ARTIFACT_BUCKET       aws-sam-cli-managed-nimbus-<account>
+#   CORS_ORIGINS          https://<your-vercel-domain>
+# and secrets:
+#   MONGODB_URL, JWT_SECRET_KEY
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # Frontend deploys via Vercel; infra-only changes still need a run.
+      - "backend/**"
+      - "thumbnailer/**"
+      - "infra/**"
+      - "scripts/package_lambda.sh"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch:
+
+# Two concurrent CloudFormation updates on one stack will collide, so
+# queue rather than cancel — cancelling mid-update can leave the stack
+# in UPDATE_ROLLBACK_FAILED.
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # required to request the OIDC token
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install SAM CLI
+        run: pip install aws-sam-cli
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-south-1
+
+      - name: Build and package both Lambdas
+        # The runner is Linux/x86_64 already, so --use-container is
+        # unnecessary here; the script's container build is for developer
+        # machines that are not.
+        run: |
+          sam build
+          scripts/package_lambda.sh \
+            "$PWD/nimbus-api.zip" "$PWD/nimbus-thumbnailer.zip"
+
+      - name: Upload artifacts
+        id: upload
+        run: |
+          API_KEY="nimbus-backend/code/${GITHUB_SHA}.zip"
+          THUMB_KEY="nimbus-backend/thumb/${GITHUB_SHA}.zip"
+          aws s3 cp nimbus-api.zip "s3://${{ vars.ARTIFACT_BUCKET }}/${API_KEY}" --only-show-errors
+          aws s3 cp nimbus-thumbnailer.zip "s3://${{ vars.ARTIFACT_BUCKET }}/${THUMB_KEY}" --only-show-errors
+          echo "api_key=${API_KEY}"     >> "$GITHUB_OUTPUT"
+          echo "thumb_key=${THUMB_KEY}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy CloudFormation stack
+        run: |
+          aws cloudformation deploy \
+            --template-file infra/nimbus-backend.yaml \
+            --stack-name nimbus-backend \
+            --region ap-south-1 \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              "MongoDbUrl=${{ secrets.MONGODB_URL }}" \
+              "JwtSecret=${{ secrets.JWT_SECRET_KEY }}" \
+              "S3BucketName=${{ vars.S3_BUCKET_NAME }}" \
+              "CorsOrigins=${{ vars.CORS_ORIGINS }}" \
+              "CodeS3Bucket=${{ vars.ARTIFACT_BUCKET }}" \
+              "CodeS3Key=${{ steps.upload.outputs.api_key }}" \
+              "ThumbnailerS3Key=${{ steps.upload.outputs.thumb_key }}"
+
+      - name: Smoke test the deployment
+        # A green CloudFormation update only means the resources exist. If
+        # the app cannot reach Atlas, health returns 503 and this fails
+        # the run rather than leaving a broken deploy looking successful.
+        run: |
+          URL=$(aws cloudformation describe-stacks --stack-name nimbus-backend \
+            --region ap-south-1 \
+            --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' --output text)
+          echo "Checking $URL/api/v1/health"
+          for attempt in 1 2 3 4 5; do
+            body=$(curl -fsS --max-time 30 "$URL/api/v1/health") && {
+              echo "$body" | grep -q '"mongodb":"connected"' && {
+                echo "healthy: $body"; exit 0; }
+            }
+            echo "attempt $attempt not healthy yet; retrying"
+            sleep 10
+          done
+          echo "Health check never reported a database connection." >&2
+          exit 1
