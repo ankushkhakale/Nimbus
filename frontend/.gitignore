@@ -42,3 +42,4 @@ next-env.d.ts
 
 # Template is safe to commit (no real values)
 !.env.example
+/out/
