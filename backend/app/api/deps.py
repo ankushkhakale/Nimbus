@@ -4,8 +4,12 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.database.mongodb import get_database
 from app.models.user import UserInDB
+from app.repositories.item_repository import ItemRepository
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
+from app.services.file_service import FileService
+from app.storage.base import ObjectStorage
+from app.storage.s3_storage import S3ObjectStorage
 from app.utils.security import decode_access_token
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -21,6 +25,30 @@ def get_user_repository(db: AsyncIOMotorDatabase = Depends(get_db)) -> UserRepos
 
 def get_auth_service(user_repo: UserRepository = Depends(get_user_repository)) -> AuthService:
     return AuthService(user_repo)
+
+
+def get_item_repository(db: AsyncIOMotorDatabase = Depends(get_db)) -> ItemRepository:
+    return ItemRepository(db)
+
+
+# Built once per process, not per request: boto3 clients are thread-safe
+# and creating one costs an expensive session/credential resolution that
+# would otherwise repeat on every call.
+_storage_singleton: ObjectStorage | None = None
+
+
+def get_storage() -> ObjectStorage:
+    global _storage_singleton
+    if _storage_singleton is None:
+        _storage_singleton = S3ObjectStorage()
+    return _storage_singleton
+
+
+def get_file_service(
+    items: ItemRepository = Depends(get_item_repository),
+    storage: ObjectStorage = Depends(get_storage),
+) -> FileService:
+    return FileService(items, storage)
 
 
 async def get_current_user(

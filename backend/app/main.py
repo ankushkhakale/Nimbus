@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.api_router import api_router
 from app.database.mongodb import connect_to_mongo, close_mongo_connection, get_database
+from app.repositories.item_repository import ItemRepository
 from app.repositories.user_repository import UserRepository
 
 # Configure basic logging
@@ -26,7 +27,9 @@ async def lifespan(app: FastAPI):
     # The unique index on email is what actually prevents duplicate
     # accounts — the check in AuthService.register is not atomic, so two
     # concurrent registrations could otherwise both pass it.
-    await UserRepository(get_database()).ensure_indexes()
+    db = get_database()
+    await UserRepository(db).ensure_indexes()
+    await ItemRepository(db).ensure_indexes()
     yield
     logger.info(f"Shutting down {settings.PROJECT_NAME} backend...")
     await close_mongo_connection()
@@ -45,7 +48,7 @@ def create_app() -> FastAPI:
     # Configure CORS middleware
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Adjust for production
+        allow_origins=settings.cors_origins_list,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
