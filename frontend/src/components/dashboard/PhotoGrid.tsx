@@ -70,9 +70,11 @@ function PhotoTile({ item }: { item: Item }) {
       {failed ? (
         <ImageOff size={20} color="var(--text-low)" />
       ) : url ? (
-        // eslint-disable-next-line @next/next/no-img-element -- presigned
-        // S3 URLs are signed and short-lived; next/image would need them
-        // whitelisted as a remote pattern and would proxy every request.
+        /* Presigned S3 URLs are signed and short-lived. next/image would
+           need them whitelisted as a remote pattern and would proxy every
+           request through the optimiser, which the static export has no
+           server to run anyway. */
+        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={url}
           alt={item.name}

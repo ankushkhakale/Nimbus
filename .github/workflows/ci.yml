@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push to the same branch makes the older run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Match the Lambda runtime. Building against a different minor
+          # version is how you find out in production that a wheel does
+          # not exist for the one you deploy on.
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        # The suite uses in-memory fakes for Mongo and S3, so it needs no
+        # services and no cloud credentials.
+        run: python -m pytest tests/ -q
+
+      - name: Check the Lambda entrypoint imports
+        # A broken import here fails only at cold start in production,
+        # where the symptom is a 502 with nothing useful in the logs.
+        run: python -c "from app.lambda_handler import handler; print('handler OK')"
+
+  frontend:
+    name: Frontend (types + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npx eslint .
+
+      - name: Build
+        env:
+          # Build-time only, and public by nature — it is compiled into
+          # the client bundle. A placeholder is fine for verifying the
+          # build; the real value lives in Vercel's project settings.
+          NEXT_PUBLIC_API_BASE_URL: https://example.invalid
+        run: npm run build
+
+  thumbnailer:
+    name: Thumbnailer (syntax + packaging)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Pillow for the Lambda platform
+        # Mirrors what scripts/package_lambda.sh does, so a wheel that is
+        # unavailable for the Lambda runtime fails here rather than after
+        # a deploy.
+        run: |
+          pip install \
+            --platform manylinux2014_x86_64 \
+            --implementation cp \
+            --python-version 3.13 \
+            --only-binary=:all: \
+            --target /tmp/thumb \
+            -r thumbnailer/requirements.txt
+
+      - name: Compile check
+        run: python -m py_compile thumbnailer/app.py
+
+  infra:
+    name: Infrastructure (template validation)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - run: pip install cfn-lint
+
+      - name: Lint CloudFormation
+        # Catches malformed templates without needing AWS credentials, so
+        # it runs safely on pull requests from anywhere.
+        run: cfn-lint infra/nimbus-backend.yaml
