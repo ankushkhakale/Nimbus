@@ -16,10 +16,13 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
 
     # S3 / Object Storage Settings
+    # Credentials come from boto3's default chain (env vars locally, the
+    # execution role on Lambda) — deliberately not settings, so keys never
+    # need to live in config or .env in production.
     S3_BUCKET_NAME: str = "nimbus-storage"
     S3_REGION: str = "ap-south-1"
-    AWS_ACCESS_KEY_ID: str = ""
-    AWS_SECRET_ACCESS_KEY: str = ""
+    # Override for MinIO/localstack; empty means the regional AWS endpoint.
+    S3_ENDPOINT_URL: str = ""
     PRESIGNED_URL_EXPIRE_SECONDS: int = 3600
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
