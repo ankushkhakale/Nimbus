@@ -269,6 +269,45 @@ class FakeStorage:
         return self.uploaded.get(key)
 
 
+class FakeRefreshTokenRepository:
+    """In-memory refresh-token store mirroring the real contract."""
+
+    def __init__(self):
+        self.rows: dict[str, dict] = {}
+
+    async def create(self, user_id: str, token_hash: str, expires_at) -> None:
+        self.rows[token_hash] = {
+            "user_id": user_id,
+            "token_hash": token_hash,
+            "expires_at": expires_at,
+            "used_at": None,
+        }
+
+    async def find(self, token_hash: str) -> dict | None:
+        return self.rows.get(token_hash)
+
+    async def mark_used(self, token_hash: str) -> bool:
+        row = self.rows.get(token_hash)
+        if row is None or row["used_at"] is not None:
+            return False
+        row["used_at"] = datetime.now(timezone.utc)
+        return True
+
+    async def revoke(self, token_hash: str) -> None:
+        self.rows.pop(token_hash, None)
+
+    async def revoke_all_for_user(self, user_id: str) -> int:
+        doomed = [h for h, r in self.rows.items() if r["user_id"] == user_id]
+        for h in doomed:
+            del self.rows[h]
+        return len(doomed)
+
+
+@pytest.fixture
+def fake_refresh_repo() -> FakeRefreshTokenRepository:
+    return FakeRefreshTokenRepository()
+
+
 @pytest.fixture
 def fake_user_repo() -> FakeUserRepository:
     return FakeUserRepository()
@@ -285,13 +324,18 @@ def fake_storage() -> FakeStorage:
 
 
 @pytest.fixture
-def client(fake_user_repo, fake_item_repo, fake_storage) -> TestClient:
+def client(fake_user_repo, fake_item_repo, fake_storage, fake_refresh_repo) -> TestClient:
     app = FastAPI()
     app.include_router(api_router, prefix="/api/v1")
     app.dependency_overrides[deps.get_user_repository] = lambda: fake_user_repo
+    app.dependency_overrides[deps.get_refresh_token_repository] = lambda: fake_refresh_repo
     app.dependency_overrides[deps.get_item_repository] = lambda: fake_item_repo
     app.dependency_overrides[deps.get_storage] = lambda: fake_storage
-    with TestClient(app) as test_client:
+    # https, not http: the refresh cookie is set Secure, and a client
+    # correctly refuses to send Secure cookies over plain HTTP. Testing
+    # against http would mean either missing the cookie entirely or
+    # weakening the cookie to suit the test.
+    with TestClient(app, base_url="https://testserver") as test_client:
         yield test_client
 
 

@@ -28,6 +28,18 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
 
+    # Refresh tokens. Opaque random strings stored hashed, not JWTs — a
+    # stateless refresh token cannot be revoked, and revocation is the
+    # entire point of having one.
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    REFRESH_COOKIE_NAME: str = "nimbus_refresh"
+    # The frontend and API are on different sites (vercel.app vs
+    # execute-api), so the cookie must be SameSite=None to be sent at
+    # all — which mandates Secure. Overridable for same-origin setups,
+    # where "lax" is strictly better.
+    REFRESH_COOKIE_SAMESITE: str = "none"
+    REFRESH_COOKIE_SECURE: bool = True
+
     # S3 / Object Storage Settings
     # Credentials come from boto3's default chain (env vars locally, the
     # execution role on Lambda) — deliberately not settings, so keys never

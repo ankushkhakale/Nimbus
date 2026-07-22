@@ -39,9 +39,15 @@ function extractDetail(body: unknown, fallback: string): string {
 
 async function request<T>(
   path: string,
-  options: { method?: string; body?: unknown; token?: string | null } = {}
+  options: {
+    method?: string;
+    body?: unknown;
+    token?: string | null;
+    /** Send the refresh cookie. Only /auth/refresh and /auth/logout need it. */
+    withCookies?: boolean;
+  } = {}
 ): Promise<T> {
-  const { method = "GET", body, token } = options;
+  const { method = "GET", body, token, withCookies = false } = options;
 
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -52,6 +58,10 @@ async function request<T>(
     response = await fetch(`${API}${path}`, {
       method,
       headers,
+      // Deliberately opt-in rather than global: sending the cookie on
+      // every file request would attach a long-lived credential to
+      // hundreds of calls that have no use for it.
+      credentials: withCookies ? "include" : "same-origin",
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
@@ -153,8 +163,26 @@ export const auth = {
   register: (email: string, full_name: string, password: string) =>
     request<User>("/auth/register", { method: "POST", body: { email, full_name, password } }),
 
+  // withCookies so the browser stores the httpOnly refresh cookie the
+  // server sets here; without it the response's Set-Cookie is dropped.
   login: (email: string, password: string) =>
-    request<TokenResponse>("/auth/login", { method: "POST", body: { email, password } }),
+    request<TokenResponse>("/auth/login", {
+      method: "POST",
+      body: { email, password },
+      withCookies: true,
+    }),
+
+  /**
+   * Exchange the refresh cookie for a new access token.
+   *
+   * This is what makes a reload survivable: the access token lives in
+   * memory only, so on load the app has nothing until this succeeds.
+   */
+  refresh: () =>
+    request<TokenResponse>("/auth/refresh", { method: "POST", withCookies: true }),
+
+  /** Revokes the session server-side, not just in this browser. */
+  logout: () => request<void>("/auth/logout", { method: "POST", withCookies: true }),
 
   me: (token: string) => request<User>("/auth/me", { token }),
 
