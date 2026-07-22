@@ -5,95 +5,135 @@ Solo/student project — built to migrate ~90GB off a lapsing Google One
 subscription and to own the infrastructure long-term ("own your cloud, own
 your data" — see [README.md](README.md)).
 
-## Tech stack (current, post-serverless-pivot)
+**The backend is live and deployed.** This is no longer a scaffold.
 
-- **Frontend**: Next.js (React) + Tailwind, static-exported, hosted on
-  **Cloudflare Pages** (not a Next.js server).
-- **Backend**: FastAPI (Python 3.13), wrapped with **Mangum**, deployed as a
-  single **AWS Lambda** function behind **API Gateway** (HTTP API).
-- **Database**: **MongoDB Atlas M0** (permanently free, 512MB) — not
-  self-hosted Mongo, since Lambda is stateless.
-- **File storage**: **AWS S3**, accessed via presigned URLs — the browser
-  uploads/downloads directly to/from S3, Lambda never proxies file bytes.
-- **Thumbnails**: S3 `ObjectCreated` event → separate Lambda (Pillow).
-- **Auth**: JWT (HS256, 24h expiry), bcrypt password hashing.
-- **Local dev only**: `docker-compose.yml` still works for local iteration
-  against a local Mongo, but production never runs on a persistent local
-  server or EC2 box — deployment is Lambda + Cloudflare Pages, driven by
-  CI/CD (GitHub Actions + SAM/Serverless Framework for backend, Cloudflare
-  Pages auto-build for frontend), not manual steps from a laptop.
+## Tech stack
 
-**Note:** `docs/Initial Architecture` describes the *original* single-FastAPI-
-process design. That was superseded by the serverless architecture above —
-see `requirements.md` and the plan file for why (cost).
+- **Backend**: FastAPI (Python 3.13) + **Mangum**, one **AWS Lambda**
+  (`nimbus-api`) behind an **API Gateway** HTTP API, in `ap-south-1`.
+- **Database**: **MongoDB Atlas M0** (`Cluster0`, ap-south-1, permanently
+  free) — Lambda is stateless, so the DB lives outside it.
+- **File storage**: **AWS S3**, private bucket, SSE-S3. The browser
+  uploads/downloads directly via presigned URLs; **Lambda never proxies
+  file bytes**.
+- **Thumbnails**: S3 `ObjectCreated` on `users/` → `nimbus-thumbnailer`
+  Lambda (Pillow) → 512px JPEG under `thumbnails/`.
+- **Frontend**: Next.js 16, **static export** (`output: "export"`).
+  Client-rendered; talks to API Gateway. **Not yet deployed** — see
+  "Open items".
+- **Auth**: JWT (HS256, 24h), bcrypt. Token held in React state only.
+- **IaC**: plain CloudFormation in `infra/nimbus-backend.yaml`.
+- **CI/CD**: GitHub Actions. CI on every PR; deploy on merge to `main`
+  (or manual dispatch) via **GitHub OIDC** — no AWS keys stored.
+
+**Note:** `docs/Initial Architecture` describes the *original*
+single-FastAPI-process design, superseded by the serverless architecture
+above. `requirements.md` has the cost math and rationale.
 
 ## Hard constraints — read before making architecture or dependency choices
 
-- **Budget ceiling: ~₹200/month (~$2), forever.** That's the true floor cost
-  of S3 storage for ~90GB and is the only recurring cost the architecture
-  should ever incur. The user is a student who explicitly cannot afford
-  ~₹1,000/month — this is not a soft preference, treat it as a hard limit
-  when proposing any new AWS/third-party service.
-- **No EC2, no other always-on compute.** It was evaluated and rejected
-  specifically because it bills per-hour regardless of usage. Don't
-  reintroduce it, even for "just running things locally on a server."
-- **No Route 53, no AWS Secrets Manager, no paid tiers of anything.** Use
-  Cloudflare for DNS (free), Lambda environment variables (KMS-encrypted by
-  default, free) for secrets instead.
-- **Never touch real cloud/AWS/Cloudflare infrastructure or run anything
-  that could incur billing without the user explicitly saying to proceed
-  with that specific action, in that moment.** A general "go ahead" on a
-  coding task does not authorize infra changes — Task #8 (deployment) is
-  explicitly held for a separate, explicit go-ahead. Everything before that
-  is local code with no cost or cloud dependency.
-- **"Production-grade" is the floor, not a stretch goal.** Proper password
-  hashing, per-user JWT scoping, presigned URLs (never proxy file bytes
-  through Lambda), least-privilege IAM once infra is touched. Don't write
-  local-only hacks that need to be rewritten later.
-- **Currency: quote costs in INR (₹)** when discussing money with the user —
-  they're India-based and think in rupees, not dollars.
+- **Budget ceiling: ~₹200/month (~$2), forever.** That is the true floor
+  cost of S3 for ~90GB and the only recurring cost the architecture should
+  incur. The user is a student who explicitly cannot afford ~₹1,000/month.
+  Treat as a hard limit when proposing any new service.
+- **No EC2, no always-on compute.** Rejected because it bills per hour
+  regardless of usage. This is also why **Kubernetes and anything needing
+  a cluster (ArgoCD etc.) is out** — a control plane costs more per month
+  than the entire budget.
+- **No Route 53, no Secrets Manager, no paid tiers.** Secrets live in
+  Lambda environment variables (KMS-encrypted, free) and GitHub Actions
+  secrets.
+- **Never create, modify or deploy cloud resources without the user
+  explicitly saying so for that specific action, in that moment.** A
+  general "go ahead" on coding does not extend to infrastructure.
+- **"Production-grade" is the floor.** bcrypt, per-user JWT scoping,
+  presigned URLs, least-privilege IAM.
+- **Quote costs in INR (₹).** The user is India-based.
 
-## Current state (as of the serverless pivot)
+## Current state
 
-This was audited file-by-file — treat this as accurate for the audit date
-noted in `requirements.md`, but re-verify before relying on it if it's been
-a while:
+Tasks 1–7 are **done and deployed**; the dashboard is a working file
+manager, not a mockup.
 
-- **Frontend**: landing page ([page.tsx](frontend/src/app/page.tsx)) is
-  fully built. Auth pages (login/register/forgot-password) are UI-complete
-  but **not wired to any backend** — submit handlers are `console.log`
-  stubs. [dashboard/page.tsx](frontend/src/app/dashboard/page.tsx) is
-  **entirely hardcoded mock data** (fake folders, fake files, fake storage
-  bar).
-- **Backend**: [main.py](backend/app/main.py) and
-  [mongodb.py](backend/app/database/mongodb.py) are solid and reusable.
-  `models/`, `schemas/`, `repositories/`, `services/`, `storage/`,
-  `middleware/`, `utils/` started as empty stubs and are being filled in
-  per the task list below.
+| Area | State |
+|---|---|
+| Auth | register / login / me / forgot-password (stub, no mail provider) |
+| Files | 23 endpoints: paginated list, folders, upload, download, preview, move, rename, trash, restore, permanent delete, search, photos, recent, usage |
+| Thumbnails | automatic on every S3 upload, verified end to end |
+| Migration | `scripts/migrate_takeout.py` — resumable, sidecar-aware |
+| Frontend | landing page, auth wired, dashboard with infinite scroll, lightbox, multi-select, move dialog, trash, search, upload progress |
+| Tests | 127 backend tests; `tsc`/eslint/`next build` clean |
 
-## Task list
+**Getting the live URL** (don't hardcode it — read it from the stack):
+```bash
+aws cloudformation describe-stacks --stack-name nimbus-backend --region ap-south-1 \
+  --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' --output text
+```
 
-Tracked live via the harness's TaskList — check that for current status.
-As of this writing:
+## Traps — things already hit, don't rediscover them
 
-1. ✅ Backend deps (`python-jose`, `passlib[bcrypt]`, `boto3`, `mangum`)
-2. 🔄 Backend user auth (register/login/me/forgot-password)
-3. ⬜ S3 storage interface (presigned URLs)
-4. ⬜ File/folder metadata models + endpoints
-5. ⬜ Wire frontend auth pages to backend
-6. ⬜ Replace dashboard mock data with real file/photo browser
-7. ⬜ Google Takeout migration script
-8. ⬜ Serverless deployment — **held until the user explicitly says go**
+- **`passlib` is incompatible with `bcrypt` 5.x.** It crashed on *every*
+  password hash. `utils/security.py` uses `bcrypt` directly now. Do not
+  reintroduce passlib. Passwords are capped at 72 bytes (bcrypt's limit).
+- **boto3 signs against the global S3 endpoint by default**, which
+  307-redirects for `ap-south-1` and drops the signature — browser uploads
+  fail silently. `s3_storage.py` pins the regional endpoint with SigV4.
+  Keep it.
+- **Never bundle `boto3`/`botocore` in the Lambda zip** — the runtime
+  provides them, and they added ~40MB. `scripts/package_lambda.sh` prunes
+  them. `requirements.txt` uses plain `fastapi`, not `fastapi[standard]`,
+  for the same reason.
+- **Deploying via SAM does not work here.** It needs
+  `cloudformation:CreateChangeSet` on the AWS-owned transform ARN, outside
+  the `NimbusDeploy` policy's `stack/nimbus-*` scope. `template.yaml`
+  exists **only** for `sam build`; deployment uses
+  `infra/nimbus-backend.yaml`. Keep Handler/Runtime/CodeUri in step.
+- **A single missing IAM permission rolls back the whole stack.** This has
+  happened twice (`logs:`, then `events:`). When adding a resource type,
+  check the deploy policy grants it first.
+- **In CloudShell, `export AWS_PAGER=""` first** and pass
+  `--region ap-south-1`. A pager has silently swallowed command output
+  more than once, including an `attach-role-policy` that appeared to
+  succeed and had not.
+- **`.env` is gitignored and untracked** — it was previously committed.
+  Never re-add it. `.env.example` is the committed template.
+- **Deletion is soft.** `DELETE` trashes; only `/files/delete-permanently`
+  and the purge remove S3 objects. Trashed items still cost storage, which
+  is why usage reports them separately.
 
-Full detail (cost math, architecture rationale, phased build-out) lives in
-`requirements.md` and the plan file at
-`~/.claude/plans/the-main-reason-of-shimmying-cocke.md`.
+## Open items
+
+1. **`EnablePurgeSchedule` is `false`.** The EventBridge rule needs
+   `events:*`, which the deploy policy lacks — and that gap rolled back a
+   deploy. Until it is granted and the parameter flipped, **trash never
+   purges and keeps costing storage**.
+2. **Log retention is "never expire"** — needs `logs:PutRetentionPolicy`.
+3. **Frontend is not deployed.** Decision made to use **Vercel** (native
+   Next.js, already connected) rather than Cloudflare Pages as
+   `requirements.md` §4 says. Import the repo with **Root Directory
+   `frontend`** and set `NEXT_PUBLIC_API_BASE_URL`.
+4. **`CORS_ORIGINS` is still `http://localhost:3000`** — in the
+   CloudFormation parameter *and* the GitHub repo variable. The deployed
+   frontend cannot call the API until both point at its real origin.
+5. **Reloading the page signs the user out.** Deliberate: the token is in
+   memory only (requirements §5). Fixing it needs an httpOnly refresh
+   cookie, which is cross-site here and so needs `SameSite=None` plus CSRF
+   protection. Explicitly deferred until the frontend has a domain.
+6. **Failed uploads leave `pending` items forever.** They are excluded
+   from listings and usage, but nothing cleans them up. A stale-pending
+   sweep belongs in the purge job.
+7. **Branch protection is not enabled** on `main`, and PR #5 is open.
 
 ## Working style for this project
 
 A project-scoped skill exists at
 [.claude/skills/nimbus-work-session/SKILL.md](.claude/skills/nimbus-work-session/SKILL.md)
-— it triggers at the start of a work session to ask which task to tackle
-next and how deep to go, always with concrete recommended options rather
-than open-ended questions. Use it rather than re-deriving "what should we do
-next" from scratch each time.
+— it triggers at the start of a work session, figures out what is next
+from this file and the task list, and offers concrete options rather than
+open-ended questions.
+
+Verify against reality rather than trusting this file: run the tests, hit
+the live health endpoint, read the stack outputs. Several bugs in this
+project were only caught by actually exercising the deployed system —
+CI passing and CloudFormation reporting success both proved insufficient
+on their own.
