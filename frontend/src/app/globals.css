@@ -1,35 +1,71 @@
+/*
+ * Nimbus design system.
+ *
+ * High-contrast dark canvas with a single accent colour doing all the
+ * brand work — no second hue, no gradients, no drop shadows. Depth comes
+ * from surfaces being barely lighter than the canvas, which reads as
+ * engineered rather than decorated.
+ *
+ * Variable names are kept stable across the app so the auth pages and
+ * dashboard inherit the same system without needing rewrites.
+ */
+
 :root {
-  /* Colors */
-  --bg-deep: #05080f;
-  --surface-0: #0a1120;
-  --surface-1: rgba(255, 255, 255, 0.03);
-  --surface-2: rgba(255, 255, 255, 0.06);
-  --primary: #6366f1;
-  --primary-glow: rgba(99, 102, 241, 0.6);
-  --primary-hover: #4f46e5;
-  --secondary: #ec4899;
-  --tertiary: #14b8a6;
-  
-  --border-glow: rgba(255, 255, 255, 0.08);
-  --border-glow-active: rgba(99, 102, 241, 0.4);
-  
+  /* --- canvas & surfaces --- */
+  --canvas: #0a0a0a;
+  --surface-soft: #121212;
+  --surface-card: #1a1a1a;
+  --surface-elevated: #242424;
+
+  /* Legacy aliases still referenced by the dashboard and auth pages. */
+  --bg-deep: var(--canvas);
+  --surface-0: var(--surface-soft);
+  --surface-1: var(--surface-card);
+  --surface-2: var(--surface-elevated);
+
+  /* --- accent --- */
+  --primary: #faff69;
+  --primary-active: #e6eb52;
+  --primary-disabled: #3a3a1f;
+  --on-primary: #0a0a0a;
+  --primary-hover: var(--primary-active);
+
+  /* --- text --- */
   --text-high: #ffffff;
-  --text-med: #94a3b8;
-  --text-low: #475569;
+  --text-body: #cccccc;
+  --text-body-strong: #e6e6e6;
+  --text-med: #888888;
+  --text-low: #5a5a5a;
 
-  /* Fonts */
-  --font-headline: var(--font-jakarta), 'Plus Jakarta Sans', sans-serif;
-  --font-body: var(--font-inter), 'Inter', sans-serif;
+  /* --- lines --- */
+  --hairline: #2a2a2a;
+  --hairline-strong: #3a3a3a;
+  --border-glow: var(--hairline);
+  --border-glow-active: var(--hairline-strong);
 
-  /* Layout */
-  --header-height: 80px;
-  --max-width: 1200px;
-  
-  /* Radii */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 24px;
+  /* --- semantic --- */
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --error: #ef4444;
+
+  /* --- type --- */
+  --font-body: var(--font-inter), Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-headline: var(--font-body);
+  --font-mono: var(--font-mono-jb), "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* --- layout --- */
+  --header-height: 64px;
+  --max-width: 1280px;
+  --sidebar-width: 260px;
+  --spacing-base: 16px;
+  --section: 96px;
+
+  /* --- radii: 8px for controls, 12px for cards. No pills except badges. --- */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 12px;
   --radius-full: 9999px;
 }
 
@@ -39,35 +75,58 @@
   padding: 0;
 }
 
+html {
+  scroll-behavior: smooth;
+  /* Anchors sit below the fixed header rather than under it. */
+  scroll-padding-top: calc(var(--header-height) + 24px);
+}
+
 body {
-  background-color: var(--bg-deep);
-  color: var(--text-high);
+  background-color: var(--canvas);
+  color: var(--text-body);
   font-family: var(--font-body);
-  line-height: 1.6;
+  font-size: 16px;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-image: 
-    radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.1), transparent 40%),
-    radial-gradient(circle at 90% 80%, rgba(236, 72, 153, 0.08), transparent 40%),
-    radial-gradient(circle at 50% 50%, rgba(20, 184, 166, 0.05), transparent 60%);
-  background-attachment: fixed;
   overflow-x: hidden;
 }
 
+/* Display type is weight 700 with negative tracking. Without the tighter
+   tracking, Inter at 700 reads wide and consumer-soft. */
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-headline);
-  letter-spacing: -0.03em;
   color: var(--text-high);
-  line-height: 1.2;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
 }
 
 a {
   color: inherit;
   text-decoration: none;
-  transition: all 0.2s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
 }
 
-/* Base Utility Classes */
+code, pre, .mono {
+  font-family: var(--font-mono);
+}
+
+::selection {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+/* Visible keyboard focus everywhere — the accent doubles as the focus
+   colour so it never needs a separate token. */
+:where(a, button, input, [tabindex]):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+/* --- layout helpers --------------------------------------------------- */
+
 .container {
   width: 100%;
   max-width: var(--max-width);
@@ -75,216 +134,293 @@ a {
   padding: 0 24px;
 }
 
-.gradient-text {
-  background: linear-gradient(135deg, #ffffff 0%, #a5b4fc 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+.section {
+  padding-block: var(--section);
 }
 
-.gradient-text-alt {
-  background: linear-gradient(135deg, #818cf8 0%, #f472b6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+.eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-med);
 }
 
-/* Glassmorphism Components */
+.rule {
+  border: 0;
+  border-top: 1px solid var(--hairline);
+}
+
+/* --- surfaces --------------------------------------------------------- */
+
+.card {
+  background: var(--surface-card);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+}
+
+.card-elevated {
+  background: var(--surface-elevated);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
+}
+
+.card-yellow {
+  background: var(--primary);
+  color: var(--on-primary);
+  border-radius: var(--radius-lg);
+}
+
+.card-yellow h1,
+.card-yellow h2,
+.card-yellow h3 {
+  color: var(--on-primary);
+}
+
+/* Names the dashboard and auth pages already use. Mapped onto the flat
+   surface system — the previous glassmorphism (blur, gradient borders,
+   drop shadows) is deliberately gone. */
 .glass-panel {
-  background: var(--surface-1);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--border-glow);
-  border-radius: var(--radius-xl);
+  background: var(--surface-card);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
 }
 
-.glass-panel:hover {
-  border-color: rgba(255, 255, 255, 0.15);
-  background: var(--surface-2);
+.glass-panel-elevated {
+  background: var(--surface-elevated);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
 }
 
 .glass-card {
-  background: linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.01) 100%);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--border-glow);
-  border-radius: var(--radius-xl);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-  position: relative;
-  overflow: hidden;
+  background: var(--surface-card);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
 }
 
-.glass-card::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  border-radius: inherit;
-  background: radial-gradient(800px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(255,255,255,0.06), transparent 40%);
-  z-index: 0;
-  opacity: 0;
-  transition: opacity 0.4s ease;
-  pointer-events: none;
+.animate-hover {
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
-.glass-card:hover {
-  transform: translateY(-4px);
-  border-color: var(--border-glow-active);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), 0 0 20px rgba(99, 102, 241, 0.1);
+.animate-hover:hover {
+  background: var(--surface-elevated);
+  border-color: var(--hairline-strong);
 }
 
-.glass-card:hover::before {
-  opacity: 1;
-}
+/* --- buttons ---------------------------------------------------------- */
 
-.glass-card > * {
-  position: relative;
-  z-index: 1;
-}
-
-/* Buttons */
-.btn-primary {
-  background: var(--primary);
-  color: white;
-  padding: 14px 28px;
-  border-radius: var(--radius-full);
-  font-weight: 600;
-  font-size: 16px;
+.btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border: 1px solid rgba(255,255,255,0.1);
-  box-shadow: 0 0 20px rgba(99, 102, 241, 0.4), inset 0 1px 0 rgba(255,255,255,0.2);
-  transition: all 0.3s ease;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  border: 1px solid transparent;
   cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-lg {
+  height: 48px;
+  padding: 0 26px;
+  font-size: 15px;
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  background: var(--primary);
+  color: var(--on-primary);
+  border: 1px solid var(--primary);
 }
 
 .btn-primary:hover {
-  background: var(--primary-hover);
-  box-shadow: 0 0 30px rgba(99, 102, 241, 0.6), inset 0 1px 0 rgba(255,255,255,0.2);
-  transform: translateY(-2px);
+  background: var(--primary-active);
+  border-color: var(--primary-active);
+}
+
+.btn-primary:disabled {
+  background: var(--primary-disabled);
+  border-color: var(--primary-disabled);
+  color: var(--text-med);
+  cursor: not-allowed;
 }
 
 .btn-secondary {
-  background: rgba(255, 255, 255, 0.05);
-  color: white;
-  padding: 14px 28px;
-  border-radius: var(--radius-full);
-  font-weight: 600;
-  font-size: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border: 1px solid rgba(255,255,255,0.1);
-  backdrop-filter: blur(10px);
-  transition: all 0.3s ease;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
   cursor: pointer;
+  background: var(--surface-card);
+  color: var(--text-high);
+  border: 1px solid var(--hairline-strong);
 }
 
 .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.2);
-  transform: translateY(-2px);
+  background: var(--surface-elevated);
 }
 
-/* Specific Layout Components */
-.bento-grid {
-  display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  gap: 24px;
+/* --- badges ----------------------------------------------------------- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: var(--radius-full);
+  background: var(--surface-card);
+  border: 1px solid var(--hairline);
+  color: var(--text-body-strong);
+  font-size: 13px;
+  font-weight: 500;
 }
 
-/* Animations */
-@keyframes float {
-  0% { transform: translateY(0px) rotate(0deg); }
-  50% { transform: translateY(-20px) rotate(2deg); }
-  100% { transform: translateY(0px) rotate(0deg); }
+.badge-yellow {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
 }
 
-@keyframes pulse-slow {
-  0%, 100% { opacity: 0.5; transform: scale(1); }
-  50% { opacity: 0.8; transform: scale(1.05); }
+/* --- stat callouts: always accent-coloured ---------------------------- */
+
+.stat {
+  font-size: clamp(36px, 5vw, 56px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -1.5px;
+  color: var(--primary);
 }
+
+/* --- code window ------------------------------------------------------ */
+
+.code-window {
+  background: var(--surface-card);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.code-window pre {
+  margin: 0;
+  padding: 20px 24px;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  line-height: 1.7;
+  /* Code keeps its size on small screens and scrolls rather than wrapping,
+     because wrapped commands are easy to mis-copy. */
+  overflow-x: auto;
+}
+
+.tok-comment { color: var(--text-low); }
+.tok-cmd     { color: var(--primary); }
+.tok-str     { color: #a3e3a3; }
+.tok-key     { color: #8ab4f8; }
+.tok-dim     { color: var(--text-med); }
+
+/* --- animation: one fade, nothing floating ---------------------------- */
 
 @keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(30px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.animate-float {
-  animation: float 6s ease-in-out infinite;
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
 }
 
 .animate-fade-in-up {
-  animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  opacity: 0;
+  animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.delay-100 { animation-delay: 100ms; }
-.delay-200 { animation-delay: 200ms; }
-.delay-300 { animation-delay: 300ms; }
+.delay-100 { animation-delay: 80ms; }
+.delay-200 { animation-delay: 160ms; }
+.delay-300 { animation-delay: 240ms; }
 
-/* Responsive adjustments */
-@media (max-width: 992px) {
-  .bento-grid {
-    grid-template-columns: repeat(1, 1fr);
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
-/* Authentication & Form Styles */
+/* --- auth pages ------------------------------------------------------- */
+
 .auth-container {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
+  padding: 24px;
 }
 
 .auth-card {
   width: 100%;
-  max-width: 440px;
-  padding: 48px;
-  background: var(--surface-1);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid var(--border-glow);
-  border-radius: var(--radius-xl);
-  box-shadow: 0 24px 60px rgba(0,0,0,0.4);
-  position: relative;
-  z-index: 10;
+  max-width: 420px;
+  padding: 40px;
+  background: var(--surface-card);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
 }
 
 .form-group {
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .form-label {
   display: block;
   font-size: 14px;
   font-weight: 500;
-  color: var(--text-med);
+  color: var(--text-body);
   margin-bottom: 8px;
 }
 
 .form-input {
   width: 100%;
-  padding: 14px 16px;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  height: 44px;
+  padding: 10px 14px;
+  background: var(--canvas);
+  border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-md);
   color: var(--text-high);
-  font-size: 16px;
+  font-size: 15px;
   font-family: inherit;
-  transition: all 0.2s ease;
+  transition: border-color 0.15s ease;
 }
 
 .form-input:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
-  background: rgba(0, 0, 0, 0.3);
 }
 
 .form-input::placeholder {
@@ -294,9 +430,9 @@ a {
 .auth-divider {
   display: flex;
   align-items: center;
-  margin: 32px 0;
-  color: var(--text-low);
-  font-size: 14px;
+  margin: 28px 0;
+  color: var(--text-med);
+  font-size: 13px;
 }
 
 .auth-divider::before,
@@ -304,51 +440,67 @@ a {
   content: '';
   flex: 1;
   height: 1px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--hairline);
 }
 
 .auth-divider::before { margin-right: 16px; }
-.auth-divider::after { margin-left: 16px; }
+.auth-divider::after  { margin-left: 16px; }
 
 .btn-oauth {
   width: 100%;
-  padding: 12px;
+  height: 44px;
   border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-elevated);
+  border: 1px solid var(--hairline-strong);
   color: var(--text-high);
+  font-family: inherit;
+  font-size: 14px;
   font-weight: 500;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  margin-bottom: 12px;
+  transition: background-color 0.15s ease;
 }
 
 .btn-oauth:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--hairline-strong);
 }
 
 .btn-submit {
   width: 100%;
-  padding: 14px;
+  height: 44px;
   border-radius: var(--radius-md);
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
+  font-family: inherit;
   font-weight: 600;
-  font-size: 16px;
+  font-size: 15px;
   border: none;
   cursor: pointer;
-  box-shadow: 0 0 15px rgba(99, 102, 241, 0.3);
-  transition: all 0.2s ease;
-  margin-top: 8px;
+  transition: background-color 0.15s ease;
+  margin-top: 4px;
 }
 
-.btn-submit:hover {
-  background: var(--primary-hover);
-  box-shadow: 0 0 25px rgba(99, 102, 241, 0.5);
-  transform: translateY(-1px);
+.btn-submit:hover:not(:disabled) {
+  background: var(--primary-active);
+}
+
+.btn-submit:disabled {
+  background: var(--primary-disabled);
+  color: var(--text-med);
+  cursor: not-allowed;
+}
+
+/* --- responsive ------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  :root { --section: 64px; }
+}
+
+@media (max-width: 768px) {
+  .auth-card { padding: 28px; }
+  /* Nav links collapse; the logo and the primary action stay. */
+  .nav-links { display: none !important; }
 }

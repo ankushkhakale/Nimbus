@@ -1,347 +1,667 @@
-"use client";
+import Link from "next/link";
+import {
+  ArrowRight,
+  Boxes,
+  Cloud,
+  FolderTree,
+  Image as ImageIcon,
+  Lock,
+  ShieldCheck,
+  Upload,
+} from "lucide-react";
 
-import React, { useEffect } from 'react';
-import Link from 'next/link';
-import { 
-  Cloud, Shield, Search, Zap, CheckCircle2, 
-  ArrowRight, Smartphone, HardDrive, 
-  Share2, ChevronRight, PlayCircle
-} from 'lucide-react';
+/*
+ * Landing page.
+ *
+ * A server component — nothing here needs client-side state. The previous
+ * version was "use client" only to run a mouse-tracking glow.
+ *
+ * Copy rule: every claim on this page is something the code actually
+ * does. The earlier version advertised zero-knowledge encryption (it is
+ * SSE-S3, so AWS holds the keys), semantic AI search (cut in
+ * requirements §6), collaboration (not built), and five fictional
+ * customer logos.
+ */
+
+const GITHUB_URL = "https://github.com/ankushkhakale/Nimbus";
 
 export default function LandingPage() {
-  
-  // Mouse tracking effect for glass cards
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      document.querySelectorAll('.glass-card').forEach((card) => {
-        const rect = (card as HTMLElement).getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        (card as HTMLElement).style.setProperty('--mouse-x', `${x}px`);
-        (card as HTMLElement).style.setProperty('--mouse-y', `${y}px`);
-      });
-    };
-    
-    window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
-  }, []);
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', position: 'relative' }}>
-      
-      {/* Background Ambient Orbs */}
-      <div style={{
-        position: 'absolute', top: '-10%', left: '20%', width: '600px', height: '600px',
-        background: 'radial-gradient(circle, rgba(99,102,241,0.15) 0%, rgba(0,0,0,0) 70%)',
-        borderRadius: '50%', filter: 'blur(60px)', zIndex: -1, pointerEvents: 'none'
-      }} className="animate-float"></div>
-      
-      <div style={{
-        position: 'absolute', top: '40%', right: '-5%', width: '500px', height: '500px',
-        background: 'radial-gradient(circle, rgba(236,72,153,0.1) 0%, rgba(0,0,0,0) 70%)',
-        borderRadius: '50%', filter: 'blur(60px)', zIndex: -1, pointerEvents: 'none',
-        animationDelay: '-3s'
-      }} className="animate-float"></div>
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      <SiteHeader />
 
-      {/* Navbar */}
-      <header style={{ 
-        position: 'fixed', top: 0, left: 0, right: 0, height: 'var(--header-height)', 
-        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
-        background: 'rgba(5, 8, 15, 0.7)', backdropFilter: 'blur(20px)',
-        borderBottom: '1px solid var(--border-glow)'
-      }}>
-        <div className="container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ 
-              width: '36px', height: '36px', borderRadius: '10px', 
-              background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%)', 
-              display: 'flex', alignItems: 'center', justifyContent: 'center', 
-              boxShadow: '0 0 20px rgba(99,102,241,0.5)' 
-            }}>
-              <Cloud size={20} color="white" strokeWidth={2.5} />
-            </div>
-            <span style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.03em' }}>Nimbus</span>
-          </Link>
-          
-          <nav style={{ display: 'flex', gap: '32px', alignItems: 'center' }}>
-            <div style={{ display: 'none', gap: '32px' }} className="md-flex">
-              <Link href="#features" style={{ color: 'var(--text-med)', fontWeight: 500, fontSize: '15px' }} className="hover-white">Features</Link>
-              <Link href="#how-it-works" style={{ color: 'var(--text-med)', fontWeight: 500, fontSize: '15px' }} className="hover-white">How it Works</Link>
-              <Link href="#pricing" style={{ color: 'var(--text-med)', fontWeight: 500, fontSize: '15px' }} className="hover-white">Pricing</Link>
-            </div>
-            
-            <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-              <Link href="/auth/login" style={{ color: 'var(--text-high)', fontWeight: 600, fontSize: '15px' }}>Log in</Link>
-              <Link href="/auth/register" className="btn-primary" style={{ padding: '10px 20px', fontSize: '15px' }}>
-                Get Started
-              </Link>
-            </div>
-          </nav>
-        </div>
-      </header>
-
-      <main style={{ flex: 1, paddingTop: '160px', paddingBottom: '100px' }}>
-        
-        {/* Hero Section */}
-        <section className="container" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: '120px' }}>
-          <div className="animate-fade-in-up" style={{ 
-            display: 'inline-flex', alignItems: 'center', gap: '8px',
-            background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-            padding: '6px 16px', borderRadius: 'var(--radius-full)',
-            color: 'var(--text-high)', fontSize: '14px', fontWeight: 500, marginBottom: '32px',
-            backdropFilter: 'blur(10px)'
-          }}>
-            <span style={{ display: 'flex', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--tertiary)' }}></span>
-            Nimbus v2.0 is now live in early access
-            <ChevronRight size={14} style={{ color: 'var(--text-med)' }} />
-          </div>
-          
-          <h1 className="animate-fade-in-up delay-100" style={{ fontSize: 'clamp(48px, 6vw, 72px)', maxWidth: '900px', marginBottom: '24px' }}>
-            The intelligent home for your <br />
-            <span className="gradient-text">entire digital life.</span>
-          </h1>
-          
-          <p className="animate-fade-in-up delay-200" style={{ fontSize: 'clamp(18px, 2vw, 22px)', color: 'var(--text-med)', maxWidth: '650px', marginBottom: '48px', lineHeight: 1.6 }}>
-            Store, organize, and retrieve your files instantly with AI. Total privacy through zero-knowledge encryption. Designed for humans.
-          </p>
-          
-          <div className="animate-fade-in-up delay-300" style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', justifyContent: 'center' }}>
-            <Link href="/auth" className="btn-primary" style={{ padding: '16px 36px', fontSize: '18px' }}>
-              Start for free
-              <ArrowRight size={20} />
-            </Link>
-            <Link href="#demo" className="btn-secondary" style={{ padding: '16px 36px', fontSize: '18px' }}>
-              <PlayCircle size={20} />
-              View Demo
-            </Link>
-          </div>
-          
-          {/* Dashboard Preview Mockup */}
-          <div className="animate-fade-in-up delay-300" style={{ 
-            marginTop: '80px', width: '100%', maxWidth: '1000px', 
-            height: '500px', background: 'var(--surface-0)', 
-            borderRadius: 'var(--radius-xl)', border: '1px solid rgba(255,255,255,0.05)',
-            boxShadow: '0 30px 60px -10px rgba(0,0,0,0.8), 0 0 40px rgba(99,102,241,0.15)',
-            position: 'relative', overflow: 'hidden'
-          }}>
-            {/* Mockup Window Header */}
-            <div style={{ height: '40px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', padding: '0 20px', gap: '8px' }}>
-              <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#ef4444' }}></div>
-              <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#eab308' }}></div>
-              <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#22c55e' }}></div>
-            </div>
-            {/* Mockup Body Content */}
-            <div style={{ display: 'flex', height: 'calc(100% - 40px)' }}>
-              <div style={{ width: '220px', borderRight: '1px solid rgba(255,255,255,0.05)', padding: '20px' }}>
-                <div style={{ height: '30px', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', marginBottom: '20px' }}></div>
-                <div style={{ height: '20px', background: 'rgba(255,255,255,0.03)', borderRadius: '4px', marginBottom: '12px', width: '80%' }}></div>
-                <div style={{ height: '20px', background: 'rgba(255,255,255,0.03)', borderRadius: '4px', marginBottom: '12px', width: '90%' }}></div>
-                <div style={{ height: '20px', background: 'rgba(255,255,255,0.03)', borderRadius: '4px', marginBottom: '12px', width: '70%' }}></div>
-              </div>
-              <div style={{ flex: 1, padding: '30px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                <div style={{ display: 'flex', gap: '20px' }}>
-                  <div style={{ flex: 2, height: '180px', background: 'rgba(99,102,241,0.05)', borderRadius: '12px', border: '1px solid rgba(99,102,241,0.1)' }}></div>
-                  <div style={{ flex: 1, height: '180px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}></div>
-                </div>
-                <div style={{ flex: 1, background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}></div>
-              </div>
-            </div>
-            {/* Gradient overlay for blending */}
-            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '200px', background: 'linear-gradient(to bottom, transparent, var(--bg-deep))', pointerEvents: 'none' }}></div>
-          </div>
-        </section>
-
-        {/* Social Proof */}
-        <section className="container" style={{ marginBottom: '120px', textAlign: 'center' }}>
-          <p style={{ color: 'var(--text-low)', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 600, marginBottom: '32px' }}>
-            Trusted by teams at innovative companies
-          </p>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '48px', flexWrap: 'wrap', opacity: 0.5, filter: 'grayscale(1)' }}>
-            {/* Replace with actual logos in production */}
-            <h3 style={{ fontSize: '24px', fontWeight: 700 }}>ACME Corp</h3>
-            <h3 style={{ fontSize: '24px', fontWeight: 700 }}>Globex</h3>
-            <h3 style={{ fontSize: '24px', fontWeight: 700 }}>Soylent</h3>
-            <h3 style={{ fontSize: '24px', fontWeight: 700 }}>Initech</h3>
-            <h3 style={{ fontSize: '24px', fontWeight: 700 }}>Umbrella</h3>
-          </div>
-        </section>
-
-        {/* Bento Grid Features */}
-        <section id="features" className="container" style={{ marginBottom: '160px' }}>
-          <div style={{ textAlign: 'center', marginBottom: '64px' }}>
-            <h2 style={{ fontSize: '48px', marginBottom: '16px' }}>Everything you need. <span className="gradient-text-alt">Nothing you don&apos;t.</span></h2>
-            <p style={{ fontSize: '20px', color: 'var(--text-med)', maxWidth: '600px', margin: '0 auto' }}>
-              We rebuilt cloud storage from the ground up to be smart, secure, and incredibly fast.
-            </p>
-          </div>
-
-          <div className="bento-grid">
-            {/* Feature 1 (Large) */}
-            <div className="glass-card" style={{ gridColumn: 'span 8', padding: '48px', minHeight: '360px', display: 'flex', flexDirection: 'column' }}>
-              <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'rgba(99,102,241,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '24px', border: '1px solid rgba(99,102,241,0.2)' }}>
-                <Search size={28} color="var(--primary)" />
-              </div>
-              <h3 style={{ fontSize: '32px', marginBottom: '16px' }}>Semantic AI Search</h3>
-              <p style={{ fontSize: '18px', color: 'var(--text-med)', maxWidth: '80%' }}>
-                Don&apos;t remember the file name? Just describe what&apos;s inside it or what it looks like. Our embedded AI understands context and finds your files instantly.
-              </p>
-              <div style={{ marginTop: 'auto', alignSelf: 'flex-end', width: '80%', height: '100px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px 12px 0 0', border: '1px solid rgba(255,255,255,0.05)', borderBottom: 'none' }}></div>
-            </div>
-
-            {/* Feature 2 (Medium) */}
-            <div className="glass-card" style={{ gridColumn: 'span 4', padding: '48px', minHeight: '360px' }}>
-              <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'rgba(20,184,166,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '24px', border: '1px solid rgba(20,184,166,0.2)' }}>
-                <Shield size={28} color="var(--tertiary)" />
-              </div>
-              <h3 style={{ fontSize: '28px', marginBottom: '16px' }}>Zero-Knowledge</h3>
-              <p style={{ fontSize: '16px', color: 'var(--text-med)' }}>
-                Your data is encrypted locally before transmission. We never see your files, your keys, or your passwords. Total absolute privacy.
-              </p>
-            </div>
-
-            {/* Feature 3 (Medium) */}
-            <div className="glass-card" style={{ gridColumn: 'span 4', padding: '48px', minHeight: '360px' }}>
-              <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'rgba(236,72,153,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '24px', border: '1px solid rgba(236,72,153,0.2)' }}>
-                <Zap size={28} color="var(--secondary)" />
-              </div>
-              <h3 style={{ fontSize: '28px', marginBottom: '16px' }}>Blazing Fast</h3>
-              <p style={{ fontSize: '16px', color: 'var(--text-med)' }}>
-                Built on a modern edge network. Your files sync instantly across all devices, anywhere in the world.
-              </p>
-            </div>
-
-            {/* Feature 4 (Large) */}
-            <div className="glass-card" style={{ gridColumn: 'span 8', padding: '48px', minHeight: '360px', display: 'flex', flexDirection: 'column' }}>
-              <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '24px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                <Share2 size={28} color="white" />
-              </div>
-              <h3 style={{ fontSize: '32px', marginBottom: '16px' }}>Secure Collaboration</h3>
-              <p style={{ fontSize: '18px', color: 'var(--text-med)', maxWidth: '80%' }}>
-                Generate expiring, password-protected links. Share folders with granular permissions, and track who accesses your data in real-time.
-              </p>
-              <div style={{ marginTop: 'auto', display: 'flex', gap: '12px' }}>
-                <div style={{ padding: '12px 24px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', fontSize: '14px' }}>project_assets.zip</div>
-                <div style={{ padding: '12px 24px', background: 'rgba(99,102,241,0.2)', color: 'var(--primary)', borderRadius: '8px', border: '1px dashed var(--primary)', fontSize: '14px', fontWeight: 600 }}>Create Share Link</div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* How it Works Step-by-Step */}
-        <section id="how-it-works" className="container" style={{ marginBottom: '160px' }}>
-          <div style={{ textAlign: 'center', marginBottom: '80px' }}>
-            <h2 style={{ fontSize: '48px', marginBottom: '16px' }}>How Nimbus Works</h2>
-            <p style={{ fontSize: '20px', color: 'var(--text-med)' }}>Simplicity on the outside, advanced tech on the inside.</p>
-          </div>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '40px', maxWidth: '800px', margin: '0 auto', position: 'relative' }}>
-            
-            <div style={{ position: 'absolute', left: '28px', top: '40px', bottom: '40px', width: '2px', background: 'rgba(255,255,255,0.05)' }}></div>
-
-            {[
-              { title: "Upload & Encrypt", desc: "Drag and drop any file. We encrypt it locally in your browser using AES-256 before it ever touches our servers.", icon: <HardDrive /> },
-              { title: "AI Analysis", desc: "Our on-device models generate semantic embeddings of your documents and images, keeping metadata private while enabling smart search.", icon: <Zap /> },
-              { title: "Global Sync", desc: "Your encrypted chunks are distributed across edge nodes, ready to be instantly fetched by your authenticated devices.", icon: <Cloud /> },
-              { title: "Access Anywhere", desc: "Log in from mobile, desktop, or web. Your private key decrypts the files seamlessly on the fly.", icon: <Smartphone /> }
-            ].map((step, i) => (
-              <div key={i} style={{ display: 'flex', gap: '32px', alignItems: 'flex-start' }}>
-                <div style={{ width: '56px', height: '56px', minWidth: '56px', borderRadius: '50%', background: 'var(--bg-deep)', border: '2px solid var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
-                  <div style={{ color: 'var(--primary)' }}>{step.icon}</div>
-                </div>
-                <div className="glass-card" style={{ padding: '32px', flex: 1 }}>
-                  <h3 style={{ fontSize: '24px', marginBottom: '12px' }}>{i+1}. {step.title}</h3>
-                  <p style={{ fontSize: '16px', color: 'var(--text-med)', lineHeight: 1.6 }}>{step.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* CTA Section */}
-        <section className="container" style={{ marginBottom: '80px' }}>
-          <div style={{ 
-            background: 'linear-gradient(135deg, rgba(99,102,241,0.2) 0%, rgba(236,72,153,0.1) 100%)',
-            border: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: 'var(--radius-xl)',
-            padding: '80px 40px',
-            textAlign: 'center',
-            position: 'relative',
-            overflow: 'hidden'
-          }}>
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'radial-gradient(circle at 50% 0%, rgba(99,102,241,0.3), transparent 70%)', pointerEvents: 'none' }}></div>
-            
-            <h2 style={{ fontSize: '48px', marginBottom: '24px', position: 'relative', zIndex: 1 }}>Ready to take back your data?</h2>
-            <p style={{ fontSize: '20px', color: 'var(--text-med)', maxWidth: '600px', margin: '0 auto 40px auto', position: 'relative', zIndex: 1 }}>
-              Join thousands of users who have already switched to a smarter, more private cloud. Get 10GB free forever.
-            </p>
-            
-            <div style={{ position: 'relative', zIndex: 1 }}>
-              <Link href="/auth/register" className="btn-primary" style={{ padding: '18px 48px', fontSize: '18px' }}>
-                Create Free Account
-              </Link>
-            </div>
-            
-            <p style={{ marginTop: '24px', fontSize: '14px', color: 'var(--text-low)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', position: 'relative', zIndex: 1 }}>
-              <CheckCircle2 size={16} /> No credit card required. Cancel anytime.
-            </p>
-          </div>
-        </section>
+      <main style={{ flex: 1 }}>
+        <Hero />
+        <StatBand />
+        <HowItWorks />
+        <WhatItDoes />
+        <CostBreakdown />
+        <NotYetBuilt />
+        <CtaBand />
       </main>
 
-      {/* Footer */}
-      <footer style={{ borderTop: '1px solid var(--border-glow)', background: 'var(--surface-0)', padding: '80px 0 40px 0' }}>
-        <div className="container">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '48px', marginBottom: '64px' }}>
-            <div style={{ gridColumn: 'span 2' }}>
-              <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-                <Cloud size={24} color="var(--primary)" />
-                <span style={{ fontSize: '24px', fontWeight: 800 }}>Nimbus</span>
-              </Link>
-              <p style={{ color: 'var(--text-med)', maxWidth: '300px', fontSize: '15px' }}>
-                The intelligent, private cloud storage platform built for the future.
-              </p>
-            </div>
-            
-            <div>
-              <h4 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px' }}>Product</h4>
-              <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <li><Link href="#" style={{ color: 'var(--text-med)', fontSize: '15px' }}>Features</Link></li>
-                <li><Link href="#" style={{ color: 'var(--text-med)', fontSize: '15px' }}>Pricing</Link></li>
-                <li><Link href="#" style={{ color: 'var(--text-med)', fontSize: '15px' }}>Download App</Link></li>
-                <li><Link href="#" style={{ color: 'var(--text-med)', fontSize: '15px' }}>Changelog</Link></li>
-              </ul>
-            </div>
-            
-            <div>
-              <h4 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px' }}>Company</h4>
-              <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <li><Link href="#" style={{ color: 'var(--text-med)', fontSize: '15px' }}>About</Link></li>
-                <li><Link href="#" style={{ color: 'var(--text-med)', fontSize: '15px' }}>Blog</Link></li>
-                <li><Link href="#" style={{ color: 'var(--text-med)', fontSize: '15px' }}>Careers</Link></li>
-                <li><Link href="#" style={{ color: 'var(--text-med)', fontSize: '15px' }}>Contact</Link></li>
-              </ul>
-            </div>
-            
-            <div>
-              <h4 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '20px' }}>Legal</h4>
-              <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <li><Link href="#" style={{ color: 'var(--text-med)', fontSize: '15px' }}>Privacy Policy</Link></li>
-                <li><Link href="#" style={{ color: 'var(--text-med)', fontSize: '15px' }}>Terms of Service</Link></li>
-                <li><Link href="#" style={{ color: 'var(--text-med)', fontSize: '15px' }}>Security</Link></li>
-              </ul>
-            </div>
-          </div>
-          
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-low)', fontSize: '14px' }}>
-            <p>© 2026 Nimbus Cloud Inc. All rights reserved.</p>
-            <div style={{ display: 'flex', gap: '16px' }}>
-              <span>X (Twitter)</span>
-              <span>GitHub</span>
-              <span>Discord</span>
-            </div>
+      <SiteFooter />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+function SiteHeader() {
+  return (
+    <header
+      style={{
+        position: "sticky",
+        top: 0,
+        zIndex: 50,
+        height: "var(--header-height)",
+        background: "var(--canvas)",
+        borderBottom: "1px solid var(--hairline)",
+      }}
+    >
+      <div
+        className="container"
+        style={{
+          height: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 24,
+        }}
+      >
+        <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Cloud size={22} color="var(--primary)" strokeWidth={2.5} />
+          <span
+            style={{
+              fontSize: 17,
+              fontWeight: 700,
+              letterSpacing: "-0.02em",
+              color: "var(--text-high)",
+            }}
+          >
+            Nimbus
+          </span>
+        </Link>
+
+        <nav
+          className="nav-links"
+          style={{ display: "flex", gap: 28, fontSize: 14, fontWeight: 500 }}
+        >
+          <a href="#how" style={{ color: "var(--text-med)" }}>How it works</a>
+          <a href="#features" style={{ color: "var(--text-med)" }}>Features</a>
+          <a href="#cost" style={{ color: "var(--text-med)" }}>Cost</a>
+          <a href={GITHUB_URL} target="_blank" rel="noreferrer" style={{ color: "var(--text-med)" }}>
+            GitHub
+          </a>
+        </nav>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <Link
+            href="/auth/login"
+            style={{ fontSize: 14, fontWeight: 600, color: "var(--text-high)" }}
+          >
+            Sign in
+          </Link>
+          <Link href="/auth/register" className="btn-primary">
+            Get started
+          </Link>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+function Hero() {
+  return (
+    <section className="container section" style={{ paddingBottom: 0 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
+          gap: 56,
+          alignItems: "center",
+        }}
+      >
+        <div className="animate-fade-in-up">
+          <span className="badge" style={{ marginBottom: 24 }}>
+            <ShieldCheck size={14} color="var(--primary)" />
+            Apache&nbsp;2.0 · runs in your own AWS account
+          </span>
+
+          <h1
+            style={{
+              fontSize: "clamp(40px, 6.4vw, 72px)",
+              lineHeight: 1.05,
+              letterSpacing: "-0.045em",
+              marginBottom: 24,
+            }}
+          >
+            Your files.
+            <br />
+            Your bucket.
+            <br />
+            <span style={{ color: "var(--primary)" }}>About ₹200 a month.</span>
+          </h1>
+
+          <p
+            style={{
+              fontSize: 18,
+              lineHeight: 1.6,
+              color: "var(--text-body)",
+              maxWidth: 520,
+              marginBottom: 32,
+            }}
+          >
+            Nimbus is a self-hosted replacement for Drive and Photos. It deploys
+            into an AWS account you control, and file contents travel straight
+            from your browser to your S3 bucket — the API only ever handles
+            metadata.
+          </p>
+
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <Link href="/auth/register" className="btn-primary btn-lg" style={{ height: 48, padding: "0 26px", fontSize: 15 }}>
+              Get started <ArrowRight size={17} />
+            </Link>
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="btn-secondary"
+              style={{ height: 48, padding: "0 26px", fontSize: 15 }}
+            >
+              Read the source
+            </a>
           </div>
         </div>
-      </footer>
+
+        <TerminalCard />
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Real output from scripts/migrate_takeout.py, not an invented mockup —
+ * the migration is the thing Nimbus was built to do, so it is what the
+ * hero should show.
+ */
+function TerminalCard() {
+  return (
+    <div className="code-window animate-fade-in-up delay-200">
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "12px 16px",
+          borderBottom: "1px solid var(--hairline)",
+        }}
+      >
+        <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#3a3a3a" }} />
+        <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#3a3a3a" }} />
+        <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#3a3a3a" }} />
+        <span
+          style={{
+            marginLeft: 8,
+            fontSize: 12,
+            color: "var(--text-low)",
+            fontFamily: "var(--font-mono)",
+          }}
+        >
+          migrate_takeout.py
+        </span>
+      </div>
+
+      <pre>
+        <span className="tok-comment"># Move a Google Takeout export into your own bucket</span>
+        {"\n"}
+        <span className="tok-cmd">$ python</span> scripts/migrate_takeout.py{" "}
+        <span className="tok-dim">\</span>
+        {"\n    "}
+        <span className="tok-key">--email</span>{" "}
+        <span className="tok-str">you@example.com</span>{" "}
+        <span className="tok-dim">\</span>
+        {"\n    "}
+        <span className="tok-key">--source</span> <span className="tok-str">~/Takeout</span>
+        {"\n\n"}
+        <span className="tok-dim">Found 1,284 files to consider</span>
+        {"\n"}
+        Drive/Documents/notes.txt{"          "}
+        <span className="tok-str">uploaded</span>
+        {"\n"}
+        Photos/Trip to Goa/IMG_001.jpg{"    "}
+        <span className="tok-str">uploaded</span>{" "}
+        <span className="tok-dim">taken 2023-06-17</span>
+        {"\n"}
+        Photos/2023/IMG_002.jpg{"          "}
+        <span className="tok-str">uploaded</span>{" "}
+        <span className="tok-dim">taken 2023-01-01</span>
+        {"\n"}
+        <span className="tok-dim">…</span>
+        {"\n\n"}
+        <span className="tok-comment">Done. uploaded=1284 skipped=0 failed=0</span>
+        {"\n"}
+        <span className="tok-comment">Capture times restored from sidecars.</span>
+      </pre>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+const STATS = [
+  { value: "₹200", label: "a month for 90 GB on S3 Standard" },
+  { value: "₹0", label: "while idle — serverless bills per request" },
+  { value: "11×9", label: "S3 object durability" },
+  { value: "0", label: "servers to patch or keep running" },
+];
+
+function StatBand() {
+  return (
+    <section className="container section">
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+          gap: 32,
+          paddingTop: 40,
+          borderTop: "1px solid var(--hairline)",
+        }}
+      >
+        {STATS.map((stat) => (
+          <div key={stat.label}>
+            <div className="stat">{stat.value}</div>
+            <p style={{ marginTop: 10, fontSize: 14, color: "var(--text-med)", maxWidth: 220 }}>
+              {stat.label}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+const STEPS = [
+  {
+    title: "Deploy it to your account",
+    body: "One CloudFormation stack: a Lambda, an HTTP API, and an S3 bucket that blocks all public access. Nothing runs — or bills — while idle.",
+  },
+  {
+    title: "Sign in",
+    body: "Passwords are bcrypt-hashed and sessions are JWTs. Every file and folder query is scoped to your user id, so accounts cannot see each other.",
+  },
+  {
+    title: "Move your files in",
+    body: "Upload from the browser, or bulk-import a Google Takeout export. Either way the bytes go straight to S3 over a presigned URL.",
+  },
+];
+
+function HowItWorks() {
+  return (
+    <section id="how" className="container section" style={{ paddingTop: 0 }}>
+      <p className="eyebrow" style={{ marginBottom: 16 }}>How it works</p>
+      <h2
+        style={{
+          fontSize: "clamp(30px, 4vw, 40px)",
+          letterSpacing: "-0.035em",
+          maxWidth: 620,
+          marginBottom: 48,
+        }}
+      >
+        Three steps, and the bytes never pass through a server you have to run.
+      </h2>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+          gap: 24,
+        }}
+      >
+        {STEPS.map((step, index) => (
+          <div key={step.title} className="card" style={{ padding: 32 }}>
+            <div
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 13,
+                color: "var(--primary)",
+                marginBottom: 20,
+              }}
+            >
+              0{index + 1}
+            </div>
+            <h3 style={{ fontSize: 18, fontWeight: 600, letterSpacing: 0, marginBottom: 10 }}>
+              {step.title}
+            </h3>
+            <p style={{ fontSize: 15, color: "var(--text-body)" }}>{step.body}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+const FEATURES = [
+  {
+    icon: Upload,
+    title: "Direct-to-S3 transfers",
+    body: "The API issues a presigned URL and steps out of the way. File contents never pass through it, so uploads are not capped by a function's memory or timeout.",
+  },
+  {
+    icon: ImageIcon,
+    title: "Thumbnails, automatically",
+    body: "Writing an object fires an S3 event that runs a Lambda and stores a 512px JPEG. A 370 KB photo becomes a 23 KB thumbnail.",
+  },
+  {
+    icon: FolderTree,
+    title: "Photos by real date",
+    body: "A Takeout export's file timestamps are the export date. Nimbus reads the JSON sidecars instead, so the grid shows when photos were actually taken.",
+  },
+  {
+    icon: Boxes,
+    title: "Takeout migration",
+    body: "A resumable bulk importer that preserves Drive's folder structure and Photos albums. Interrupt it and re-run; it skips what already landed.",
+  },
+  {
+    icon: Lock,
+    title: "Per-user isolation",
+    body: "Queries are scoped by JWT and objects are prefixed with users/{id}/. Path traversal is rejected before a key is ever built.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Encrypted at rest",
+    body: "SSE-S3 with AES-256, and the bucket blocks public access on all four settings. Objects are reachable only through short-lived signed URLs.",
+  },
+];
+
+function WhatItDoes() {
+  return (
+    <section id="features" className="container section" style={{ paddingTop: 0 }}>
+      <p className="eyebrow" style={{ marginBottom: 16 }}>What it does</p>
+      <h2
+        style={{
+          fontSize: "clamp(30px, 4vw, 40px)",
+          letterSpacing: "-0.035em",
+          maxWidth: 620,
+          marginBottom: 48,
+        }}
+      >
+        Everything below is built and running today.
+      </h2>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+          gap: 24,
+        }}
+      >
+        {FEATURES.map(({ icon: Icon, title, body }) => (
+          <div key={title} className="card" style={{ padding: 32 }}>
+            <Icon size={20} color="var(--primary)" strokeWidth={2} />
+            <h3
+              style={{
+                fontSize: 18,
+                fontWeight: 600,
+                letterSpacing: 0,
+                margin: "18px 0 10px",
+              }}
+            >
+              {title}
+            </h3>
+            <p style={{ fontSize: 15, color: "var(--text-body)" }}>{body}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+const COST_ROWS: [string, string, string][] = [
+  ["S3 Standard storage", "90 GB", "≈ ₹202"],
+  ["Lambda", "1M requests + 400,000 GB-s free", "₹0"],
+  ["API Gateway", "first 1M requests free", "₹0"],
+  ["MongoDB Atlas M0", "512 MB, free tier", "₹0"],
+  ["Internet egress", "first 100 GB/month free", "₹0"],
+];
+
+function CostBreakdown() {
+  return (
+    <section id="cost" className="container section" style={{ paddingTop: 0 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+          gap: 48,
+          alignItems: "start",
+        }}
+      >
+        <div>
+          <p className="eyebrow" style={{ marginBottom: 16 }}>Cost</p>
+          <h2
+            style={{
+              fontSize: "clamp(30px, 4vw, 40px)",
+              letterSpacing: "-0.035em",
+              marginBottom: 20,
+            }}
+          >
+            Storage is the only line that costs anything.
+          </h2>
+          <p style={{ fontSize: 16, color: "var(--text-body)", maxWidth: 460 }}>
+            Everything else fits inside a permanently free tier at personal
+            scale. There is no subscription and no margin on top — you are
+            paying AWS directly for durable storage, and nothing else.
+          </p>
+        </div>
+
+        <div className="card" style={{ padding: 8 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14.5 }}>
+            <tbody>
+              {COST_ROWS.map(([service, detail, price]) => (
+                <tr key={service} style={{ borderBottom: "1px solid var(--hairline)" }}>
+                  <td style={{ padding: "16px 16px 16px 20px" }}>
+                    <div style={{ color: "var(--text-high)", fontWeight: 500 }}>{service}</div>
+                    <div style={{ color: "var(--text-med)", fontSize: 13, marginTop: 2 }}>
+                      {detail}
+                    </div>
+                  </td>
+                  <td
+                    style={{
+                      padding: "16px 20px 16px 16px",
+                      textAlign: "right",
+                      whiteSpace: "nowrap",
+                      fontFamily: "var(--font-mono)",
+                      color: price === "₹0" ? "var(--text-med)" : "var(--text-high)",
+                    }}
+                  >
+                    {price}
+                  </td>
+                </tr>
+              ))}
+              <tr>
+                <td style={{ padding: "18px 16px 18px 20px", fontWeight: 600, color: "var(--text-high)" }}>
+                  Total
+                </td>
+                <td
+                  style={{
+                    padding: "18px 20px 18px 16px",
+                    textAlign: "right",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 18,
+                    fontWeight: 700,
+                    color: "var(--primary)",
+                  }}
+                >
+                  ≈ ₹202
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <p style={{ marginTop: 24, fontSize: 13, color: "var(--text-low)", maxWidth: 720 }}>
+        Based on AWS ap-south-1 list prices at $0.023 per GB-month, converted at
+        ₹96.3 to the dollar. Rates and exchange rates move; the bill arrives in
+        your own account, so check it against current pricing.
+      </p>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+const NOT_BUILT = [
+  "Share links and multi-user collaboration",
+  "A mobile app — the web UI is responsive, but that is all",
+  "File versioning and a trash bin",
+  "Full-text or semantic search across file contents",
+];
+
+/**
+ * Stating the gaps plainly is worth more than padding the feature list.
+ * The previous page advertised three of these four as if they shipped.
+ */
+function NotYetBuilt() {
+  return (
+    <section className="container section" style={{ paddingTop: 0 }}>
+      <div className="card" style={{ padding: 40 }}>
+        <p className="eyebrow" style={{ marginBottom: 16 }}>Not built yet</p>
+        <h2 style={{ fontSize: 24, letterSpacing: "-0.02em", marginBottom: 20 }}>
+          Things Nimbus does not do
+        </h2>
+        <ul
+          style={{
+            listStyle: "none",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+            gap: "12px 32px",
+          }}
+        >
+          {NOT_BUILT.map((item) => (
+            <li
+              key={item}
+              style={{
+                display: "flex",
+                gap: 12,
+                fontSize: 15,
+                color: "var(--text-body)",
+              }}
+            >
+              <span aria-hidden style={{ color: "var(--text-low)" }}>—</span>
+              {item}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+function CtaBand() {
+  return (
+    <section className="container" style={{ paddingBottom: "var(--section)" }}>
+      <div
+        className="card-yellow"
+        style={{
+          padding: "clamp(40px, 6vw, 64px)",
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 32,
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div>
+          <h2
+            style={{
+              fontSize: "clamp(28px, 4vw, 40px)",
+              letterSpacing: "-0.035em",
+              marginBottom: 12,
+            }}
+          >
+            Run it yourself.
+          </h2>
+          <p style={{ fontSize: 16, color: "rgba(10,10,10,0.75)", maxWidth: 460 }}>
+            Clone the repo, deploy the stack, point it at your bucket. No
+            account with us, because there is no us.
+          </p>
+        </div>
+
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <Link
+            href="/auth/register"
+            className="btn"
+            style={{
+              height: 48,
+              padding: "0 26px",
+              fontSize: 15,
+              background: "var(--on-primary)",
+              color: "var(--primary)",
+            }}
+          >
+            Get started <ArrowRight size={17} />
+          </Link>
+          <a
+            href={GITHUB_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="btn"
+            style={{
+              height: 48,
+              padding: "0 26px",
+              fontSize: 15,
+              background: "transparent",
+              color: "var(--on-primary)",
+              border: "1px solid rgba(10,10,10,0.3)",
+            }}
+          >
+            GitHub
+          </a>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+function SiteFooter() {
+  return (
+    <footer style={{ borderTop: "1px solid var(--hairline)", padding: "40px 0" }}>
+      <div
+        className="container"
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 20,
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Cloud size={18} color="var(--primary)" strokeWidth={2.5} />
+          <span style={{ fontWeight: 700, color: "var(--text-high)" }}>Nimbus</span>
+          <span style={{ color: "var(--text-low)", fontSize: 14 }}>· Apache 2.0</span>
+        </div>
+
+        <div style={{ display: "flex", gap: 24, fontSize: 14, color: "var(--text-med)" }}>
+          <a href="#how">How it works</a>
+          <a href="#features">Features</a>
+          <a href="#cost">Cost</a>
+          <a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a>
+        </div>
+      </div>
+    </footer>
   );
 }

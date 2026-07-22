@@ -67,11 +67,11 @@ export default function ForgotPasswordPage() {
         <div style={{ textAlign: 'center', padding: '16px 0' }}>
           <div style={{ 
             width: '64px', height: '64px', borderRadius: '50%', 
-            background: 'rgba(20,184,166,0.1)', 
+            background: 'rgba(34,197,94,0.12)', 
             display: 'flex', alignItems: 'center', justifyContent: 'center', 
-            margin: '0 auto 24px auto', border: '1px solid rgba(20,184,166,0.2)' 
+            margin: '0 auto 24px auto', border: '1px solid rgba(34,197,94,0.3)' 
           }}>
-            <Mail size={32} color="var(--tertiary)" />
+            <Mail size={32} color="var(--success)" />
           </div>
           <h3 style={{ fontSize: '20px', marginBottom: '12px' }}>Check your inbox</h3>
           <p style={{ color: 'var(--text-med)', fontSize: '15px', marginBottom: '32px' }}>

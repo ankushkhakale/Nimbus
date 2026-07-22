@@ -3,6 +3,7 @@
 import React, { useMemo, useRef, useState } from "react";
 import {
   ChevronRight,
+  Cloud,
   Download,
   File as FileIcon,
   FolderPlus,
@@ -93,19 +94,20 @@ export function FileBrowser() {
         }}
       >
         <div style={{ padding: "24px 16px", display: "flex", alignItems: "center", gap: "12px" }}>
+          {/* Icon is --on-primary, not white: white on the yellow accent
+              fails contrast badly. */}
           <div
             style={{
               width: "32px",
               height: "32px",
-              borderRadius: "8px",
+              borderRadius: "var(--radius-md)",
               background: "var(--primary)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              boxShadow: "0 0 15px var(--primary-hover)",
             }}
           >
-            <FolderIcon size={20} color="white" />
+            <Cloud size={19} color="var(--on-primary)" strokeWidth={2.5} />
           </div>
           <h1 style={{ fontSize: "20px", margin: 0, fontWeight: 700 }}>Nimbus</h1>
         </div>
@@ -133,7 +135,7 @@ export function FileBrowser() {
                 gap: "10px",
                 padding: "12px 16px",
                 borderRadius: "var(--radius-sm)",
-                background: view === entry.key ? "rgba(99, 102, 241, 0.15)" : "transparent",
+                background: view === entry.key ? "var(--surface-elevated)" : "transparent",
                 color: view === entry.key ? "var(--text-high)" : "var(--text-med)",
                 fontWeight: view === entry.key ? 600 : 500,
                 borderLeft:
@@ -171,7 +173,7 @@ export function FileBrowser() {
             alignItems: "center",
             justifyContent: "space-between",
             padding: "0 40px",
-            borderBottom: "1px solid rgba(255,255,255,0.05)",
+            borderBottom: "1px solid var(--hairline)",
             gap: "16px",
           }}
         >
@@ -180,27 +182,17 @@ export function FileBrowser() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search in this folder…"
-            className="glass-panel"
-            style={{
-              padding: "10px 16px",
-              borderRadius: "24px",
-              width: "360px",
-              background: "transparent",
-              border: "1px solid rgba(255,255,255,0.08)",
-              color: "var(--text-high)",
-              outline: "none",
-              fontSize: "14px",
-            }}
+            className="form-input"
+            style={{ width: "340px", height: "40px", fontSize: "14px" }}
           />
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <button type="button" onClick={handleNewFolder} className="btn-oauth" style={toolbarBtn}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <button type="button" onClick={handleNewFolder} className="btn-secondary">
               <FolderPlus size={16} /> New folder
             </button>
             <button
               type="button"
               onClick={() => fileInput.current?.click()}
-              className="btn-oauth"
-              style={{ ...toolbarBtn, background: "var(--primary)", color: "white" }}
+              className="btn-primary"
             >
               <Upload size={16} /> Upload
             </button>
@@ -218,8 +210,9 @@ export function FileBrowser() {
               type="button"
               onClick={() => setView(view === "files" ? "photos" : "files")}
               title={view === "files" ? "Photo grid" : "File list"}
-              style={{ ...toolbarBtn, padding: "8px" }}
-              className="btn-oauth"
+              aria-label={view === "files" ? "Photo grid" : "File list"}
+              className="btn-secondary"
+              style={{ padding: "0 12px" }}
             >
               {view === "files" ? <Grid3x3 size={16} /> : <List size={16} />}
             </button>
@@ -445,7 +438,7 @@ export function FileBrowser() {
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(99,102,241,0.12)",
+            background: "rgba(250,255,105,0.10)",
             border: "2px dashed var(--primary)",
             display: "flex",
             alignItems: "center",
@@ -462,17 +455,6 @@ export function FileBrowser() {
     </div>
   );
 }
-
-const toolbarBtn: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "8px",
-  padding: "9px 14px",
-  borderRadius: "10px",
-  fontSize: "14px",
-  cursor: "pointer",
-  width: "auto",
-};
 
 const sectionHeading: React.CSSProperties = {
   fontSize: "15px",
