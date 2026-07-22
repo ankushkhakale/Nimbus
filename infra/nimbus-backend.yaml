@@ -25,6 +25,18 @@ Parameters:
   ThumbnailerS3Key:
     Type: String
     Description: Key of the thumbnailer zip; change to trigger a code update.
+  EnablePurgeSchedule:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      Create the daily trash-purge schedule. Requires events:* on the
+      deploying principal, which the NimbusDeploy policy does not grant by
+      default — leaving this false lets the rest of the stack deploy, and
+      trash simply accumulates until it is enabled.
+
+Conditions:
+  WithPurgeSchedule: !Equals [!Ref EnablePurgeSchedule, "true"]
 
 Resources:
   NimbusFunction:
@@ -60,6 +72,7 @@ Resources:
   # invocation is one per day.
   PurgeSchedule:
     Type: AWS::Events::Rule
+    Condition: WithPurgeSchedule
     Properties:
       Name: nimbus-purge-trash
       Description: Delete trashed Nimbus items past the retention window.
@@ -73,6 +86,7 @@ Resources:
 
   PurgeInvokePermission:
     Type: AWS::Lambda::Permission
+    Condition: WithPurgeSchedule
     Properties:
       FunctionName: !Ref NimbusFunction
       Action: lambda:InvokeFunction

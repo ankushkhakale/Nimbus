@@ -97,6 +97,8 @@ export interface Item {
   taken_at: string | null;
   created_at: string;
   updated_at: string;
+  /** Set when the item is in the trash. */
+  deleted_at: string | null;
 }
 
 export interface UploadUrlResponse {
@@ -109,6 +111,40 @@ export interface Usage {
   bytes_stored: number;
   file_count: number;
   folder_count: number;
+}
+
+export interface CategoryUsage {
+  category: string;
+  bytes_stored: number;
+  file_count: number;
+}
+
+export interface UsageDetail extends Usage {
+  trashed_count: number;
+  trashed_bytes: number;
+  by_category: CategoryUsage[];
+}
+
+/** A page of items. `total` is what lets infinite scroll know when to stop. */
+export interface Page<T> {
+  items: T[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+export type SortKey =
+  | "name"
+  | "name_desc"
+  | "size"
+  | "size_asc"
+  | "updated"
+  | "updated_asc";
+
+export interface SignedUrl {
+  item_id: string;
+  url: string;
+  is_thumbnail: boolean;
 }
 
 // --- auth ----------------------------------------------------------------
@@ -128,11 +164,92 @@ export const auth = {
 
 // --- files ---------------------------------------------------------------
 
+function qs(params: Record<string, string | number | null | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== null && value !== undefined && value !== "") {
+      search.set(key, String(value));
+    }
+  }
+  const encoded = search.toString();
+  return encoded ? `?${encoded}` : "";
+}
+
 export const files = {
   usage: (token: string) => request<Usage>("/files/usage", { token }),
 
-  list: (token: string, parentId?: string | null) =>
-    request<Item[]>(`/files${parentId ? `?parent_id=${encodeURIComponent(parentId)}` : ""}`, {
+  usageDetail: (token: string) => request<UsageDetail>("/files/usage/detail", { token }),
+
+  list: (
+    token: string,
+    parentId?: string | null,
+    opts: { offset?: number; limit?: number; sort?: SortKey } = {}
+  ) =>
+    request<Page<Item>>(
+      `/files${qs({ parent_id: parentId, offset: opts.offset, limit: opts.limit, sort: opts.sort })}`,
+      { token }
+    ),
+
+  /** Every image the user owns, newest first, regardless of folder. */
+  photos: (token: string, opts: { offset?: number; limit?: number } = {}) =>
+    request<Page<Item>>(`/files/photos${qs({ offset: opts.offset, limit: opts.limit })}`, {
+      token,
+    }),
+
+  search: (token: string, q: string, opts: { offset?: number; limit?: number } = {}) =>
+    request<Page<Item>>(`/files/search${qs({ q, offset: opts.offset, limit: opts.limit })}`, {
+      token,
+    }),
+
+  recent: (token: string, limit = 20) =>
+    request<Item[]>(`/files/recent${qs({ limit })}`, { token }),
+
+  trash: (token: string, opts: { offset?: number; limit?: number } = {}) =>
+    request<Page<Item>>(`/files/trash${qs({ offset: opts.offset, limit: opts.limit })}`, {
+      token,
+    }),
+
+  /**
+   * Sign a whole screen of thumbnails in one request. Asking per tile
+   * meant one Lambda invocation per photo.
+   */
+  thumbnailUrls: (token: string, itemIds: string[]) =>
+    request<{ urls: SignedUrl[]; expires_in: number }>("/files/thumbnail-urls", {
+      method: "POST",
+      body: { item_ids: itemIds },
+      token,
+    }),
+
+  previewUrl: (token: string, itemId: string) =>
+    request<{ download_url: string; expires_in: number }>(`/files/${itemId}/preview-url`, {
+      token,
+    }),
+
+  moveMany: (token: string, itemIds: string[], parentId: string | null) =>
+    request<{ affected: number }>("/files/move", {
+      method: "POST",
+      body: { item_ids: itemIds, parent_id: parentId },
+      token,
+    }),
+
+  trashMany: (token: string, itemIds: string[]) =>
+    request<{ affected: number }>("/files/trash", {
+      method: "POST",
+      body: { item_ids: itemIds },
+      token,
+    }),
+
+  restoreMany: (token: string, itemIds: string[]) =>
+    request<{ affected: number }>("/files/restore", {
+      method: "POST",
+      body: { item_ids: itemIds },
+      token,
+    }),
+
+  deleteForever: (token: string, itemIds: string[]) =>
+    request<{ affected: number }>("/files/delete-permanently", {
+      method: "POST",
+      body: { item_ids: itemIds },
       token,
     }),
 
@@ -184,17 +301,35 @@ export const files = {
  * API, and must not carry the Authorization header — S3 rejects requests
  * that carry both its signature and an unexpected auth header.
  */
-export async function uploadToS3(
+export function uploadToS3(
   uploadUrl: string,
   file: File,
-  contentType: string | null
+  contentType: string | null,
+  onProgress?: (fraction: number) => void
 ): Promise<void> {
-  const response = await fetch(uploadUrl, {
-    method: "PUT",
-    headers: contentType ? { "Content-Type": contentType } : {},
-    body: file,
+  // XMLHttpRequest rather than fetch: fetch cannot report upload progress
+  // in any browser today (ReadableStream request bodies are still not
+  // universally supported), and a multi-gigabyte upload with no progress
+  // bar is indistinguishable from a hang.
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", uploadUrl, true);
+    if (contentType) xhr.setRequestHeader("Content-Type", contentType);
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        onProgress(event.loaded / event.total);
+      }
+    };
+
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new ApiError(xhr.status, `Upload failed (${xhr.status}).`));
+
+    xhr.onerror = () => reject(new ApiError(0, "Upload failed — check your connection."));
+    xhr.onabort = () => reject(new ApiError(0, "Upload cancelled."));
+
+    xhr.send(file);
   });
-  if (!response.ok) {
-    throw new ApiError(response.status, `Upload failed (${response.status}).`);
-  }
 }

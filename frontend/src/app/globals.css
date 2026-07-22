@@ -493,6 +493,11 @@ code, pre, .mono {
   cursor: not-allowed;
 }
 
+/* Used by upload spinners and the move dialog. */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* --- responsive ------------------------------------------------------- */
 
 @media (max-width: 900px) {
@@ -503,4 +508,32 @@ code, pre, .mono {
   .auth-card { padding: 28px; }
   /* Nav links collapse; the logo and the primary action stay. */
   .nav-links { display: none !important; }
+
+  /* The dashboard sidebar becomes a drawer rather than a fixed column —
+     260px of a 360px screen is not a layout. */
+  .dashboard-sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 100;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+
+  .dashboard-sidebar.is-open {
+    transform: none;
+  }
+
+  .sidebar-toggle {
+    display: inline-flex !important;
+  }
+
+  /* Date and size are the first things to drop when a row runs out of
+     width; name and actions matter more. */
+  .row-meta {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-sidebar { transition: none; }
 }
