@@ -1,0 +1,328 @@
+"""Pagination, the global photo library, search, and bulk operations."""
+
+FILES = "/api/v1/files"
+
+
+def _folder(client, h, name, parent=None):
+    return client.post(f"{FILES}/folders", json={"name": name, "parent_id": parent},
+                       headers=h).json()["id"]
+
+
+def _ready_file(client, h, storage, repo, name, parent=None, ctype="text/plain", size=100):
+    """Create a file and mark it uploaded, as the browser flow would."""
+    item_id = client.post(
+        f"{FILES}/upload-url",
+        json={"name": name, "parent_id": parent, "content_type": ctype},
+        headers=h,
+    ).json()["item"]["id"]
+    storage.uploaded[repo._items[item_id].s3_key] = size
+    client.post(f"{FILES}/{item_id}/complete", headers=h)
+    return item_id
+
+
+# --- pagination ---------------------------------------------------------
+
+def test_listing_is_paginated(client, auth_headers):
+    h = auth_headers()
+    for i in range(12):
+        _folder(client, h, f"folder-{i:02d}")
+
+    first = client.get(FILES, params={"limit": 5}, headers=h).json()
+    assert len(first["items"]) == 5
+    assert first["total"] == 12
+    assert first["offset"] == 0
+
+    second = client.get(FILES, params={"limit": 5, "offset": 5}, headers=h).json()
+    assert len(second["items"]) == 5
+    # Pages must not overlap, or an infinite scroll shows duplicates.
+    assert not {i["id"] for i in first["items"]} & {i["id"] for i in second["items"]}
+
+    last = client.get(FILES, params={"limit": 5, "offset": 10}, headers=h).json()
+    assert len(last["items"]) == 2
+
+
+def test_page_size_is_capped(client, auth_headers):
+    """A caller cannot ask for an unbounded page."""
+    h = auth_headers()
+    assert client.get(FILES, params={"limit": 5000}, headers=h).status_code == 422
+
+
+def test_sorting_options(client, auth_headers, fake_storage, fake_item_repo):
+    h = auth_headers()
+    _ready_file(client, h, fake_storage, fake_item_repo, "b.txt", size=300)
+    _ready_file(client, h, fake_storage, fake_item_repo, "a.txt", size=100)
+    _ready_file(client, h, fake_storage, fake_item_repo, "c.txt", size=200)
+
+    by_name = client.get(FILES, params={"sort": "name"}, headers=h).json()["items"]
+    assert [i["name"] for i in by_name] == ["a.txt", "b.txt", "c.txt"]
+
+    by_size = client.get(FILES, params={"sort": "size"}, headers=h).json()["items"]
+    assert [i["size"] for i in by_size] == [300, 200, 100]
+
+
+def test_unknown_sort_falls_back_rather_than_erroring(client, auth_headers):
+    h = auth_headers()
+    _folder(client, h, "x")
+    r = client.get(FILES, params={"sort": "'; drop--"}, headers=h)
+    assert r.status_code == 200
+
+
+# --- global photo library ----------------------------------------------
+
+def test_photos_span_every_folder(client, auth_headers, fake_storage, fake_item_repo):
+    """A photo library is organised by time, not by where files sit."""
+    h = auth_headers()
+    album = _folder(client, h, "Album")
+    nested = _folder(client, h, "Nested", album)
+    _ready_file(client, h, fake_storage, fake_item_repo, "root.jpg", None, "image/jpeg")
+    _ready_file(client, h, fake_storage, fake_item_repo, "album.jpg", album, "image/jpeg")
+    _ready_file(client, h, fake_storage, fake_item_repo, "deep.jpg", nested, "image/jpeg")
+
+    body = client.get(f"{FILES}/photos", headers=h).json()
+    assert body["total"] == 3
+    assert {i["name"] for i in body["items"]} == {"root.jpg", "album.jpg", "deep.jpg"}
+
+
+def test_photos_exclude_non_images_and_pending_uploads(client, auth_headers, fake_storage,
+                                                       fake_item_repo):
+    h = auth_headers()
+    _ready_file(client, h, fake_storage, fake_item_repo, "doc.pdf", None, "application/pdf")
+    _ready_file(client, h, fake_storage, fake_item_repo, "shown.jpg", None, "image/jpeg")
+    # Requested but never uploaded — has no bytes behind it.
+    client.post(f"{FILES}/upload-url",
+                json={"name": "pending.jpg", "parent_id": None, "content_type": "image/jpeg"},
+                headers=h)
+
+    body = client.get(f"{FILES}/photos", headers=h).json()
+    assert [i["name"] for i in body["items"]] == ["shown.jpg"]
+
+
+def test_photos_are_isolated_per_user(client, auth_headers, fake_storage, fake_item_repo):
+    a = auth_headers("a@example.com")
+    b = auth_headers("b@example.com")
+    _ready_file(client, a, fake_storage, fake_item_repo, "mine.jpg", None, "image/jpeg")
+    assert client.get(f"{FILES}/photos", headers=b).json()["total"] == 0
+
+
+# --- batch thumbnail signing -------------------------------------------
+
+def test_thumbnail_urls_signs_a_batch_in_one_call(client, auth_headers, fake_storage,
+                                                  fake_item_repo):
+    """One request per grid, not one per tile."""
+    h = auth_headers()
+    ids = [
+        _ready_file(client, h, fake_storage, fake_item_repo, f"p{i}.jpg", None, "image/jpeg")
+        for i in range(5)
+    ]
+    r = client.post(f"{FILES}/thumbnail-urls", json={"item_ids": ids}, headers=h)
+    assert r.status_code == 200
+    assert {u["item_id"] for u in r.json()["urls"]} == set(ids)
+
+
+def test_thumbnail_batch_skips_other_users_ids(client, auth_headers, fake_storage,
+                                               fake_item_repo):
+    """A stale or forged id must not leak a URL, nor fail the whole batch."""
+    a = auth_headers("a@example.com")
+    b = auth_headers("b@example.com")
+    theirs = _ready_file(client, a, fake_storage, fake_item_repo, "theirs.jpg", None, "image/jpeg")
+    mine = _ready_file(client, b, fake_storage, fake_item_repo, "mine.jpg", None, "image/jpeg")
+
+    urls = client.post(f"{FILES}/thumbnail-urls", json={"item_ids": [mine, theirs]},
+                       headers=b).json()["urls"]
+    assert [u["item_id"] for u in urls] == [mine]
+
+
+def test_thumbnail_batch_is_bounded(client, auth_headers):
+    h = auth_headers()
+    r = client.post(f"{FILES}/thumbnail-urls",
+                    json={"item_ids": [f"{i:024x}" for i in range(600)]}, headers=h)
+    assert r.status_code == 422
+
+
+# --- search -------------------------------------------------------------
+
+def test_search_crosses_folders(client, auth_headers, fake_storage, fake_item_repo):
+    h = auth_headers()
+    deep = _folder(client, h, "Deep")
+    _ready_file(client, h, fake_storage, fake_item_repo, "invoice-2024.pdf", deep)
+    _ready_file(client, h, fake_storage, fake_item_repo, "notes.txt", None)
+
+    body = client.get(f"{FILES}/search", params={"q": "invoice"}, headers=h).json()
+    assert [i["name"] for i in body["items"]] == ["invoice-2024.pdf"]
+
+
+def test_search_is_case_insensitive(client, auth_headers, fake_storage, fake_item_repo):
+    h = auth_headers()
+    _ready_file(client, h, fake_storage, fake_item_repo, "Report.PDF", None)
+    assert client.get(f"{FILES}/search", params={"q": "report"}, headers=h).json()["total"] == 1
+
+
+def test_search_treats_regex_characters_literally(client, auth_headers, fake_storage,
+                                                  fake_item_repo):
+    """An unescaped '.*' would match everything the user owns."""
+    h = auth_headers()
+    _ready_file(client, h, fake_storage, fake_item_repo, "budget.txt", None)
+    _ready_file(client, h, fake_storage, fake_item_repo, "notes.txt", None)
+    assert client.get(f"{FILES}/search", params={"q": ".*"}, headers=h).json()["total"] == 0
+
+
+def test_search_is_isolated_per_user(client, auth_headers, fake_storage, fake_item_repo):
+    a = auth_headers("a@example.com")
+    b = auth_headers("b@example.com")
+    _ready_file(client, a, fake_storage, fake_item_repo, "secret.txt", None)
+    assert client.get(f"{FILES}/search", params={"q": "secret"}, headers=b).json()["total"] == 0
+
+
+def test_search_ignores_trashed_items(client, auth_headers, fake_storage, fake_item_repo):
+    h = auth_headers()
+    item = _ready_file(client, h, fake_storage, fake_item_repo, "gone.txt", None)
+    client.delete(f"{FILES}/{item}", headers=h)
+    assert client.get(f"{FILES}/search", params={"q": "gone"}, headers=h).json()["total"] == 0
+
+
+# --- bulk move ----------------------------------------------------------
+
+def test_bulk_move(client, auth_headers, fake_storage, fake_item_repo):
+    h = auth_headers()
+    dest = _folder(client, h, "Dest")
+    ids = [
+        _ready_file(client, h, fake_storage, fake_item_repo, f"f{i}.txt", None)
+        for i in range(3)
+    ]
+    r = client.post(f"{FILES}/move", json={"item_ids": ids, "parent_id": dest}, headers=h)
+    assert r.json()["affected"] == 3
+    moved = client.get(FILES, params={"parent_id": dest}, headers=h).json()
+    assert moved["total"] == 3
+
+
+def test_bulk_move_skips_a_folder_that_would_cycle(client, auth_headers):
+    """One invalid move must not undo the valid ones in the batch."""
+    h = auth_headers()
+    top = _folder(client, h, "top")
+    inner = _folder(client, h, "inner", top)
+    other = _folder(client, h, "other")
+
+    r = client.post(f"{FILES}/move", json={"item_ids": [other, top], "parent_id": inner},
+                    headers=h)
+    assert r.json()["affected"] == 1
+    assert [i["name"] for i in client.get(FILES, params={"parent_id": inner},
+                                          headers=h).json()["items"]] == ["other"]
+
+
+def test_bulk_trash_and_restore(client, auth_headers, fake_storage, fake_item_repo):
+    h = auth_headers()
+    ids = [
+        _ready_file(client, h, fake_storage, fake_item_repo, f"f{i}.txt", None)
+        for i in range(3)
+    ]
+    assert client.post(f"{FILES}/trash", json={"item_ids": ids},
+                       headers=h).json()["affected"] == 3
+    assert client.get(FILES, headers=h).json()["total"] == 0
+
+    assert client.post(f"{FILES}/restore", json={"item_ids": ids},
+                       headers=h).json()["affected"] == 3
+    assert client.get(FILES, headers=h).json()["total"] == 3
+
+
+def test_bulk_operations_ignore_other_users_items(client, auth_headers, fake_storage,
+                                                  fake_item_repo):
+    a = auth_headers("a@example.com")
+    b = auth_headers("b@example.com")
+    theirs = _ready_file(client, a, fake_storage, fake_item_repo, "theirs.txt", None)
+
+    assert client.post(f"{FILES}/trash", json={"item_ids": [theirs]},
+                       headers=b).json()["affected"] == 0
+    assert client.get(FILES, headers=a).json()["total"] == 1
+
+
+# --- duplicate names ----------------------------------------------------
+
+def test_duplicate_upload_names_are_disambiguated(client, auth_headers):
+    """Two files called the same thing would be indistinguishable in the UI."""
+    h = auth_headers()
+    first = client.post(f"{FILES}/upload-url", json={"name": "photo.jpg", "parent_id": None},
+                        headers=h).json()["item"]["name"]
+    second = client.post(f"{FILES}/upload-url", json={"name": "photo.jpg", "parent_id": None},
+                         headers=h).json()["item"]["name"]
+    assert first == "photo.jpg"
+    assert second == "photo (2).jpg"
+
+
+def test_duplicate_folder_names_are_disambiguated(client, auth_headers):
+    h = auth_headers()
+    client.post(f"{FILES}/folders", json={"name": "Docs"}, headers=h)
+    r = client.post(f"{FILES}/folders", json={"name": "Docs"}, headers=h)
+    assert r.json()["name"] == "Docs (2)"
+
+
+def test_same_name_in_different_folders_is_fine(client, auth_headers):
+    h = auth_headers()
+    other = _folder(client, h, "Other")
+    a = client.post(f"{FILES}/folders", json={"name": "Docs"}, headers=h).json()["name"]
+    b = client.post(f"{FILES}/folders", json={"name": "Docs", "parent_id": other},
+                    headers=h).json()["name"]
+    assert a == b == "Docs"
+
+
+# --- recent + usage detail ---------------------------------------------
+
+def test_recent_lists_files_newest_first(client, auth_headers, fake_storage, fake_item_repo):
+    h = auth_headers()
+    _ready_file(client, h, fake_storage, fake_item_repo, "old.txt", None)
+    _ready_file(client, h, fake_storage, fake_item_repo, "new.txt", None)
+    names = [i["name"] for i in client.get(f"{FILES}/recent", headers=h).json()]
+    assert names[0] == "new.txt"
+
+
+def test_usage_detail_breaks_down_by_category(client, auth_headers, fake_storage,
+                                              fake_item_repo):
+    h = auth_headers()
+    _ready_file(client, h, fake_storage, fake_item_repo, "a.jpg", None, "image/jpeg", 1000)
+    _ready_file(client, h, fake_storage, fake_item_repo, "b.pdf", None, "application/pdf", 500)
+
+    body = client.get(f"{FILES}/usage/detail", headers=h).json()
+    assert body["bytes_stored"] == 1500
+    categories = {c["category"]: c["bytes_stored"] for c in body["by_category"]}
+    assert categories["images"] == 1000
+    assert categories["documents"] == 500
+
+
+def test_usage_detail_reports_trash_separately(client, auth_headers, fake_storage,
+                                               fake_item_repo):
+    """Trash still occupies S3, so it is surfaced rather than hidden."""
+    h = auth_headers()
+    item = _ready_file(client, h, fake_storage, fake_item_repo, "a.txt", None, size=800)
+    client.delete(f"{FILES}/{item}", headers=h)
+
+    body = client.get(f"{FILES}/usage/detail", headers=h).json()
+    assert body["bytes_stored"] == 0
+    assert body["trashed_count"] == 1
+    assert body["trashed_bytes"] == 800
+
+
+# --- preview ------------------------------------------------------------
+
+def test_preview_url_has_no_attachment_disposition(client, auth_headers, fake_storage,
+                                                   fake_item_repo):
+    """Preview renders in place; download forces a save dialog."""
+    h = auth_headers()
+    item = _ready_file(client, h, fake_storage, fake_item_repo, "a.jpg", None, "image/jpeg")
+
+    preview = client.get(f"{FILES}/{item}/preview-url", headers=h).json()["download_url"]
+    download = client.get(f"{FILES}/{item}/download-url", headers=h).json()["download_url"]
+    assert "filename" not in preview
+    assert "filename" in download
+
+
+def test_preview_requires_a_completed_upload(client, auth_headers):
+    h = auth_headers()
+    item = client.post(f"{FILES}/upload-url", json={"name": "a.jpg", "parent_id": None},
+                       headers=h).json()["item"]["id"]
+    assert client.get(f"{FILES}/{item}/preview-url", headers=h).status_code == 400
+
+
+def test_preview_is_isolated_per_user(client, auth_headers, fake_storage, fake_item_repo):
+    a = auth_headers("a@example.com")
+    b = auth_headers("b@example.com")
+    item = _ready_file(client, a, fake_storage, fake_item_repo, "private.jpg", None, "image/jpeg")
+    assert client.get(f"{FILES}/{item}/preview-url", headers=b).status_code == 404

@@ -44,6 +44,17 @@ class Item(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+    # Set when the item is moved to Trash. Every normal query filters on
+    # this being null, so deletion is reversible until the purge job runs.
+    deleted_at: datetime | None = None
+    # Where the item lived before deletion, so Restore can put it back
+    # even if the user has since navigated elsewhere.
+    deleted_from: str | None = None
+
     @property
     def is_folder(self) -> bool:
         return self.type is ItemType.FOLDER
+
+    @property
+    def is_trashed(self) -> bool:
+        return self.deleted_at is not None

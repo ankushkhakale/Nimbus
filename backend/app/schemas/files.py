@@ -69,6 +69,7 @@ class ItemResponse(BaseModel):
     taken_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    deleted_at: datetime | None = None
 
     @classmethod
     def from_item(cls, item: Item) -> "ItemResponse":
@@ -85,7 +86,73 @@ class ItemResponse(BaseModel):
             taken_at=item.taken_at,
             created_at=item.created_at,
             updated_at=item.updated_at,
+            deleted_at=item.deleted_at,
         )
+
+
+class PageResponse(BaseModel):
+    """One page of items plus enough context to fetch the next.
+
+    `total` lets the client show "1–100 of 4,312" and know when to stop;
+    without it an infinite scroll cannot tell "empty page" from "end".
+    """
+
+    items: list[ItemResponse]
+    total: int
+    offset: int
+    limit: int
+
+    @property
+    def has_more(self) -> bool:
+        return self.offset + len(self.items) < self.total
+
+
+class BulkItemsRequest(BaseModel):
+    # Bounded so one request cannot ask the server to walk an unbounded
+    # number of subtrees.
+    item_ids: list[str] = Field(min_length=1, max_length=500)
+
+
+class MoveRequest(BaseModel):
+    item_ids: list[str] = Field(min_length=1, max_length=500)
+    parent_id: str | None = None
+
+
+class BulkResultResponse(BaseModel):
+    affected: int
+
+
+class SignedUrl(BaseModel):
+    item_id: str
+    url: str
+    is_thumbnail: bool
+
+
+class SignedUrlsResponse(BaseModel):
+    """Batch signing.
+
+    The photo grid needs a URL per tile. Requesting them one at a time
+    meant one Lambda invocation per photo, which at library scale burns
+    the free tier in a few page views.
+    """
+
+    urls: list[SignedUrl]
+    expires_in: int
+
+
+class CategoryUsage(BaseModel):
+    category: str
+    bytes_stored: int
+    file_count: int
+
+
+class UsageDetailResponse(BaseModel):
+    bytes_stored: int
+    file_count: int
+    folder_count: int
+    trashed_count: int
+    trashed_bytes: int
+    by_category: list[CategoryUsage]
 
 
 class UsageResponse(BaseModel):
