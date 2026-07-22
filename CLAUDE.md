@@ -111,7 +111,11 @@ aws cloudformation describe-stacks --stack-name nimbus-backend --region ap-south
 3. **Frontend is not deployed.** Decision made to use **Vercel** (native
    Next.js, already connected) rather than Cloudflare Pages as
    `requirements.md` §4 says. Import the repo with **Root Directory
-   `frontend`** and set `NEXT_PUBLIC_API_BASE_URL`.
+   `frontend`** — there is no `package.json` at the repo root, so leaving
+   this at `./` is the failure everyone hits — and set
+   `NEXT_PUBLIC_API_BASE_URL` before the first build, since it is
+   compiled into the client bundle rather than read at runtime.
+   PR #6 must merge first or Vercel builds the pre-redesign frontend.
 4. **`CORS_ORIGINS` is still `http://localhost:3000`** — in the
    CloudFormation parameter *and* the GitHub repo variable. The deployed
    frontend cannot call the API until both point at its real origin.
@@ -122,7 +126,30 @@ aws cloudformation describe-stacks --stack-name nimbus-backend --region ap-south
 6. **Failed uploads leave `pending` items forever.** They are excluded
    from listings and usage, but nothing cleans them up. A stale-pending
    sweep belongs in the purge job.
-7. **Branch protection is not enabled** on `main`, and PR #5 is open.
+7. **Branch protection is not enabled** on `main` — confirmed, no
+   rulesets exist. Required approvals must be `0`, or a solo maintainer
+   cannot merge their own PR.
+
+## Planned: EC2 for the migration only
+
+The no-EC2 rule stands for *serving* anything. One deliberate exception
+is agreed: running the 90GB Takeout migration on a temporary instance in
+`ap-south-1`, then terminating it.
+
+This is the case where a server is genuinely the right tool. Uploading
+90GB from a home connection could take days and resumes badly; an
+instance in the same region as the bucket pulls the Takeout archives
+over AWS's network and uploads in-region, where transfer is free. The
+data never touches the home link.
+
+Rules for it: use an **IAM instance role**, never pasted access keys;
+run the job under `tmux` so an SSH drop does not kill it; **terminate
+the instance** when the migration finishes. It is burst compute for a
+bounded job, not hosting.
+
+Credit math that drove the decision — ~$120 of credits buys either
+~12 months of a t3.micro, or ~4.75 years of S3 storage for 90GB. The
+credits are reserved for storage.
 
 ## Working style for this project
 
