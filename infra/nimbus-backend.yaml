@@ -54,6 +54,31 @@ Resources:
           PRESIGNED_URL_EXPIRE_SECONDS: "3600"
           CORS_ORIGINS: !Ref CorsOrigins
 
+  # Daily sweep that removes trashed items past their retention window.
+  # Until it runs, deleted files still occupy the bucket, so this is a
+  # cost control as much as a cleanup. EventBridge rules are free and the
+  # invocation is one per day.
+  PurgeSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: nimbus-purge-trash
+      Description: Delete trashed Nimbus items past the retention window.
+      ScheduleExpression: cron(30 2 * * ? *) # 02:30 UTC daily
+      State: ENABLED
+      Targets:
+        - Id: nimbus-api-purge
+          Arn: !GetAtt NimbusFunction.Arn
+          # Routed by lambda_handler to the job rather than to Mangum.
+          Input: '{"nimbus_task": "purge_trash"}'
+
+  PurgeInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref NimbusFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt PurgeSchedule.Arn
+
   # NOTE: /aws/lambda/nimbus-api is created implicitly by Lambda on first
   # invocation, and therefore defaults to "Never expire" retention.
   # Managing it here would be better — indefinite retention is the usual
