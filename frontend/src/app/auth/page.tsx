@@ -103,15 +103,14 @@ export default function AuthPage() {
 
           <button type="submit" className="animate-hover" style={{
             background: 'var(--primary)',
-            color: 'white',
+            color: 'var(--on-primary)',
             border: 'none',
             padding: '14px',
             borderRadius: 'var(--radius-md)',
             fontWeight: 600,
             fontSize: '16px',
             cursor: 'pointer',
-            marginTop: '8px',
-            boxShadow: '0 4px 15px rgba(99, 102, 241, 0.3)'
+            marginTop: '8px'
           }}>
             {isLogin ? 'Sign In' : 'Create Account'}
           </button>

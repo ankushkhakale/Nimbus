@@ -25,6 +25,18 @@ Parameters:
   ThumbnailerS3Key:
     Type: String
     Description: Key of the thumbnailer zip; change to trigger a code update.
+  EnablePurgeSchedule:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      Create the daily trash-purge schedule. Requires events:* on the
+      deploying principal, which the NimbusDeploy policy does not grant by
+      default — leaving this false lets the rest of the stack deploy, and
+      trash simply accumulates until it is enabled.
+
+Conditions:
+  WithPurgeSchedule: !Equals [!Ref EnablePurgeSchedule, "true"]
 
 Resources:
   NimbusFunction:
@@ -53,6 +65,33 @@ Resources:
           S3_REGION: !Ref AWS::Region
           PRESIGNED_URL_EXPIRE_SECONDS: "3600"
           CORS_ORIGINS: !Ref CorsOrigins
+
+  # Daily sweep that removes trashed items past their retention window.
+  # Until it runs, deleted files still occupy the bucket, so this is a
+  # cost control as much as a cleanup. EventBridge rules are free and the
+  # invocation is one per day.
+  PurgeSchedule:
+    Type: AWS::Events::Rule
+    Condition: WithPurgeSchedule
+    Properties:
+      Name: nimbus-purge-trash
+      Description: Delete trashed Nimbus items past the retention window.
+      ScheduleExpression: cron(30 2 * * ? *) # 02:30 UTC daily
+      State: ENABLED
+      Targets:
+        - Id: nimbus-api-purge
+          Arn: !GetAtt NimbusFunction.Arn
+          # Routed by lambda_handler to the job rather than to Mangum.
+          Input: '{"nimbus_task": "purge_trash"}'
+
+  PurgeInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: WithPurgeSchedule
+    Properties:
+      FunctionName: !Ref NimbusFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt PurgeSchedule.Arn
 
   # NOTE: /aws/lambda/nimbus-api is created implicitly by Lambda on first
   # invocation, and therefore defaults to "Never expire" retention.

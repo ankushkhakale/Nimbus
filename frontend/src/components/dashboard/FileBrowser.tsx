@@ -1,319 +1,241 @@
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronRight,
+  Clock,
+  Cloud,
   Download,
   File as FileIcon,
+  FileText,
   FolderPlus,
   Folder as FolderIcon,
-  Grid3x3,
   Image as ImageIcon,
-  List,
   Loader2,
+  Music,
   Pencil,
+  RotateCcw,
+  Search,
   Trash2,
   Upload,
+  Video,
+  X,
 } from "lucide-react";
 
-import { Item } from "@/lib/api";
-import { formatBytes, formatRelativeDate, isImage } from "@/lib/format";
-import { useFiles } from "@/lib/use-files";
+import { Item, SortKey } from "@/lib/api";
+import { formatBytes, formatRelativeDate } from "@/lib/format";
+import { View, useFiles } from "@/lib/use-files";
 import { FormError } from "@/components/FormError";
+import { ConfirmModal, PromptModal } from "@/components/ui/Modal";
+import { Lightbox } from "./Lightbox";
+import { MoveDialog } from "./MoveDialog";
 import { PhotoGrid } from "./PhotoGrid";
 import { StorageWidget } from "./StorageWidget";
 
-type View = "files" | "photos";
+const SORT_LABELS: Record<SortKey, string> = {
+  name: "Name (A–Z)",
+  name_desc: "Name (Z–A)",
+  updated: "Newest first",
+  updated_asc: "Oldest first",
+  size: "Largest first",
+  size_asc: "Smallest first",
+};
+
+const NAV: { key: View; label: string; icon: React.ReactNode }[] = [
+  { key: "files", label: "My Cloud", icon: <FolderIcon size={16} /> },
+  { key: "photos", label: "Photos", icon: <ImageIcon size={16} /> },
+  { key: "recent", label: "Recent", icon: <Clock size={16} /> },
+  { key: "trash", label: "Trash", icon: <Trash2 size={16} /> },
+];
+
+function iconFor(item: Item) {
+  const ct = item.content_type ?? "";
+  if (item.type === "folder") return <FolderIcon size={18} color="var(--primary)" />;
+  if (ct.startsWith("image/")) return <ImageIcon size={18} color="var(--text-med)" />;
+  if (ct.startsWith("video/")) return <Video size={18} color="var(--text-med)" />;
+  if (ct.startsWith("audio/")) return <Music size={18} color="var(--text-med)" />;
+  if (/pdf|document|text/.test(ct)) return <FileText size={18} color="var(--text-med)" />;
+  return <FileIcon size={18} color="var(--text-med)" />;
+}
+
+type DialogState =
+  | { kind: "none" }
+  | { kind: "newFolder" }
+  | { kind: "rename"; item: Item }
+  | { kind: "trash"; items: Item[] }
+  | { kind: "deleteForever"; items: Item[] }
+  | { kind: "move"; items: Item[] };
 
 export function FileBrowser() {
-  const browser = useFiles();
-  const [view, setView] = useState<View>("files");
+  const b = useFiles();
+  const [dialog, setDialog] = useState<DialogState>({ kind: "none" });
   const [dragging, setDragging] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const [lightboxId, setLightboxId] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const fileInput = useRef<HTMLInputElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const sentinel = useRef<HTMLDivElement>(null);
 
-  const { items, loading, error, uploads, usage } = browser;
+  const { items, loading, loadingMore, error, uploads, usage, view, selected } = b;
 
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return q ? items.filter((i) => i.name.toLowerCase().includes(q)) : items;
-  }, [items, search]);
+  const folders = useMemo(() => items.filter((i) => i.type === "folder"), [items]);
+  const fileItems = useMemo(() => items.filter((i) => i.type === "file"), [items]);
+  // Anything openable in the viewer, so arrow keys page through a
+  // coherent set rather than skipping over folders.
+  const viewable = useMemo(() => fileItems, [fileItems]);
+  const lightboxIndex = lightboxId ? viewable.findIndex((i) => i.id === lightboxId) : -1;
 
-  const folders = visible.filter((i) => i.type === "folder");
-  const fileItems = visible.filter((i) => i.type === "file");
-  const photos = fileItems.filter((i) => isImage(i.content_type));
-
-  const guard = async (fn: () => Promise<void>) => {
+  const guard = useCallback(async (fn: () => Promise<void>) => {
     setActionError(null);
     try {
       await fn();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Action failed.");
     }
-  };
+  }, []);
 
-  const handleNewFolder = () => {
-    const name = window.prompt("Folder name");
-    if (name?.trim()) void guard(() => browser.createFolder(name.trim()));
-  };
+  // --- infinite scroll ------------------------------------------------
 
-  const handleRename = (item: Item) => {
-    const name = window.prompt("Rename to", item.name);
-    if (name?.trim() && name.trim() !== item.name) {
-      void guard(() => browser.rename(item, name.trim()));
-    }
-  };
+  useEffect(() => {
+    const node = sentinel.current;
+    if (!node || !b.hasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => entries[0]?.isIntersecting && void b.loadMore(),
+      // Start fetching before the sentinel is actually visible, so the
+      // next page usually lands before the user reaches the bottom.
+      { rootMargin: "400px" }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [b.hasMore, b.loadMore, b]);
 
-  const handleDelete = (item: Item) => {
-    const extra = item.type === "folder" ? " and everything inside it" : "";
-    if (window.confirm(`Delete "${item.name}"${extra}? This cannot be undone.`)) {
-      void guard(() => browser.remove(item));
-    }
+  // --- keyboard shortcuts ---------------------------------------------
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const typing =
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable);
+
+      if (e.key === "/" && !typing) {
+        e.preventDefault();
+        searchInput.current?.focus();
+        return;
+      }
+      if (typing || dialog.kind !== "none" || lightboxId) return;
+
+      if ((e.key === "a" || e.key === "A") && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        b.selectAll();
+      }
+      if (e.key === "Escape") b.clearSelection();
+      if ((e.key === "Delete" || e.key === "Backspace") && b.selectedItems.length) {
+        e.preventDefault();
+        setDialog({
+          kind: view === "trash" ? "deleteForever" : "trash",
+          items: b.selectedItems,
+        });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [b, dialog.kind, lightboxId, view]);
+
+  // --- actions ---------------------------------------------------------
+
+  const openItem = (item: Item) => {
+    if (item.type === "folder") b.openFolder(item);
+    else setLightboxId(item.id);
   };
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragging(false);
-    if (e.dataTransfer.files.length) void guard(() => browser.upload(e.dataTransfer.files));
+    if (view === "trash") return;
+    if (e.dataTransfer.files.length) void guard(() => b.upload(e.dataTransfer.files));
   };
+
+  const closeDialog = () => setDialog({ kind: "none" });
 
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
-      {/* Sidebar */}
-      <aside
-        className="glass-panel"
-        style={{
-          width: "var(--sidebar-width)",
-          height: "100%",
-          display: "flex",
-          flexDirection: "column",
-          padding: "var(--spacing-base) 16px",
-          borderRight: "1px solid var(--border-glow)",
+      <Sidebar
+        view={view}
+        setView={(v) => {
+          b.setView(v);
+          setSidebarOpen(false);
         }}
-      >
-        <div style={{ padding: "24px 16px", display: "flex", alignItems: "center", gap: "12px" }}>
-          <div
-            style={{
-              width: "32px",
-              height: "32px",
-              borderRadius: "8px",
-              background: "var(--primary)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              boxShadow: "0 0 15px var(--primary-hover)",
-            }}
-          >
-            <FolderIcon size={20} color="white" />
-          </div>
-          <h1 style={{ fontSize: "20px", margin: 0, fontWeight: 700 }}>Nimbus</h1>
-        </div>
+        usage={usage}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
-        <nav
-          style={{
-            flex: 1,
-            marginTop: "24px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "8px",
-          }}
-        >
-          {([
-            { key: "files", label: "My Cloud", icon: <FolderIcon size={16} /> },
-            { key: "photos", label: "Photos", icon: <ImageIcon size={16} /> },
-          ] as const).map((entry) => (
-            <button
-              key={entry.key}
-              type="button"
-              onClick={() => setView(entry.key)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                padding: "12px 16px",
-                borderRadius: "var(--radius-sm)",
-                background: view === entry.key ? "rgba(99, 102, 241, 0.15)" : "transparent",
-                color: view === entry.key ? "var(--text-high)" : "var(--text-med)",
-                fontWeight: view === entry.key ? 600 : 500,
-                borderLeft:
-                  view === entry.key ? "3px solid var(--primary)" : "3px solid transparent",
-                border: "none",
-                borderLeftStyle: "solid",
-                cursor: "pointer",
-                font: "inherit",
-                textAlign: "left",
-              }}
-            >
-              {entry.icon}
-              {entry.label}
-            </button>
-          ))}
-        </nav>
-
-        <StorageWidget usage={usage} />
-      </aside>
-
-      {/* Main */}
       <main
-        style={{ flex: 1, display: "flex", flexDirection: "column", overflowY: "auto" }}
+        style={{ flex: 1, display: "flex", flexDirection: "column", overflowY: "auto", minWidth: 0 }}
         onDragOver={(e) => {
           e.preventDefault();
-          setDragging(true);
+          if (view !== "trash") setDragging(true);
         }}
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
       >
-        <header
-          style={{
-            height: "var(--header-height)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "0 40px",
-            borderBottom: "1px solid rgba(255,255,255,0.05)",
-            gap: "16px",
-          }}
-        >
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search in this folder…"
-            className="glass-panel"
-            style={{
-              padding: "10px 16px",
-              borderRadius: "24px",
-              width: "360px",
-              background: "transparent",
-              border: "1px solid rgba(255,255,255,0.08)",
-              color: "var(--text-high)",
-              outline: "none",
-              fontSize: "14px",
-            }}
-          />
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <button type="button" onClick={handleNewFolder} className="btn-oauth" style={toolbarBtn}>
-              <FolderPlus size={16} /> New folder
-            </button>
-            <button
-              type="button"
-              onClick={() => fileInput.current?.click()}
-              className="btn-oauth"
-              style={{ ...toolbarBtn, background: "var(--primary)", color: "white" }}
-            >
-              <Upload size={16} /> Upload
-            </button>
-            <input
-              ref={fileInput}
-              type="file"
-              multiple
-              hidden
-              onChange={(e) => {
-                if (e.target.files?.length) void guard(() => browser.upload(e.target.files!));
-                e.target.value = "";
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => setView(view === "files" ? "photos" : "files")}
-              title={view === "files" ? "Photo grid" : "File list"}
-              style={{ ...toolbarBtn, padding: "8px" }}
-              className="btn-oauth"
-            >
-              {view === "files" ? <Grid3x3 size={16} /> : <List size={16} />}
-            </button>
-          </div>
-        </header>
+        <Toolbar
+          browser={b}
+          searchRef={searchInput}
+          onNewFolder={() => setDialog({ kind: "newFolder" })}
+          onUploadClick={() => fileInput.current?.click()}
+          onOpenSidebar={() => setSidebarOpen(true)}
+        />
 
-        <div style={{ padding: "32px 40px", maxWidth: "1600px", margin: "0 auto", width: "100%" }}>
-          {/* Breadcrumbs */}
-          <nav
-            aria-label="Breadcrumb"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: "4px",
-              marginBottom: "24px",
-            }}
-          >
-            {browser.trail.map((crumb, index) => {
-              const last = index === browser.trail.length - 1;
-              return (
-                <React.Fragment key={`${crumb.id ?? "root"}-${index}`}>
-                  {index > 0 && <ChevronRight size={15} color="var(--text-low)" />}
-                  <button
-                    type="button"
-                    onClick={() => browser.navigateTo(index)}
-                    disabled={last}
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      padding: "4px 6px",
-                      borderRadius: "6px",
-                      cursor: last ? "default" : "pointer",
-                      color: last ? "var(--text-high)" : "var(--text-med)",
-                      fontWeight: last ? 600 : 500,
-                      fontSize: last ? "22px" : "15px",
-                      font: "inherit",
-                    }}
-                  >
-                    {crumb.name}
-                  </button>
-                </React.Fragment>
-              );
-            })}
-          </nav>
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => {
+            if (e.target.files?.length) void guard(() => b.upload(e.target.files!));
+            e.target.value = "";
+          }}
+        />
+
+        <div style={{ padding: "24px clamp(16px, 4vw, 40px)", width: "100%", maxWidth: 1600, margin: "0 auto" }}>
+          {view === "files" && !b.query && <Breadcrumbs browser={b} />}
 
           <FormError message={actionError ?? error} />
 
-          {/* Upload progress */}
           {uploads.length > 0 && (
-            <div style={{ marginBottom: "24px", display: "flex", flexDirection: "column", gap: "8px" }}>
-              {uploads.map((u) => (
-                <div
-                  key={u.key}
-                  className="glass-panel"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "10px",
-                    padding: "10px 16px",
-                    borderRadius: "var(--radius-sm)",
-                    fontSize: "14px",
-                    color: u.status === "error" ? "#fca5a5" : "var(--text-med)",
-                  }}
-                >
-                  {u.status === "uploading" && (
-                    <Loader2 size={15} className="animate-spin" style={{ animation: "spin 1s linear infinite" }} />
-                  )}
-                  <span style={{ flex: 1 }}>{u.name}</span>
-                  <span>
-                    {u.status === "uploading" && "Uploading…"}
-                    {u.status === "done" && "Done"}
-                    {u.status === "error" && (u.error ?? "Failed")}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <UploadList uploads={uploads} onDismiss={b.dismissUpload} />
+          )}
+
+          {selected.size > 0 && (
+            <SelectionBar
+              count={selected.size}
+              view={view}
+              onClear={b.clearSelection}
+              onMove={() => setDialog({ kind: "move", items: b.selectedItems })}
+              onTrash={() => setDialog({ kind: "trash", items: b.selectedItems })}
+              onRestore={() => void guard(() => b.restoreItems([...selected]))}
+              onDeleteForever={() =>
+                setDialog({ kind: "deleteForever", items: b.selectedItems })
+              }
+            />
           )}
 
           {loading ? (
             <p style={{ color: "var(--text-med)" }}>Loading…</p>
+          ) : items.length === 0 ? (
+            <EmptyState view={view} query={b.query} />
           ) : view === "photos" ? (
-            photos.length === 0 ? (
-              <EmptyState
-                title="No photos here"
-                hint="Upload images and they'll appear grouped by date."
-              />
-            ) : (
-              <PhotoGrid photos={photos} />
-            )
-          ) : visible.length === 0 ? (
-            <EmptyState
-              title={search ? "Nothing matches your search" : "This folder is empty"}
-              hint={search ? undefined : "Drag files anywhere here, or use the Upload button."}
+            <PhotoGrid
+              photos={items}
+              selected={selected}
+              onToggleSelect={b.toggleSelected}
+              onOpen={(item) => setLightboxId(item.id)}
             />
           ) : (
             <>
@@ -323,57 +245,22 @@ export function FileBrowser() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
-                      gap: "16px",
-                      marginBottom: "40px",
+                      gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                      gap: 14,
+                      marginBottom: 34,
                     }}
                   >
                     {folders.map((folder) => (
-                      <div
+                      <FolderCard
                         key={folder.id}
-                        className="glass-panel-elevated animate-hover"
-                        onDoubleClick={() => browser.openFolder(folder)}
-                        style={{
-                          padding: "20px",
-                          borderRadius: "var(--radius-xl)",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <div style={{ display: "flex", justifyContent: "space-between" }}>
-                          <FolderIcon
-                            size={34}
-                            fill="var(--primary)"
-                            fillOpacity={0.2}
-                            color="var(--primary)"
-                          />
-                          <RowActions
-                            onRename={() => handleRename(folder)}
-                            onDelete={() => handleDelete(folder)}
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => browser.openFolder(folder)}
-                          style={{
-                            marginTop: "14px",
-                            background: "transparent",
-                            border: "none",
-                            padding: 0,
-                            color: "var(--text-high)",
-                            fontSize: "15px",
-                            fontWeight: 600,
-                            cursor: "pointer",
-                            textAlign: "left",
-                            font: "inherit",
-                            wordBreak: "break-word",
-                          }}
-                        >
-                          {folder.name}
-                        </button>
-                        <p style={{ fontSize: "12px", color: "var(--text-med)", marginTop: "4px" }}>
-                          {formatRelativeDate(folder.updated_at)}
-                        </p>
-                      </div>
+                        item={folder}
+                        isSelected={selected.has(folder.id)}
+                        readOnly={view === "trash"}
+                        onOpen={() => openItem(folder)}
+                        onToggleSelect={b.toggleSelected}
+                        onRename={() => setDialog({ kind: "rename", item: folder })}
+                        onTrash={() => setDialog({ kind: "trash", items: [folder] })}
+                      />
                     ))}
                   </div>
                 </>
@@ -382,75 +269,54 @@ export function FileBrowser() {
               {fileItems.length > 0 && (
                 <>
                   <h2 style={sectionHeading}>Files</h2>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {fileItems.map((file) => (
-                      <div
+                      <FileRow
                         key={file.id}
-                        className="glass-panel animate-hover"
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "16px",
-                          padding: "14px 20px",
-                          borderRadius: "var(--radius-md)",
-                        }}
-                      >
-                        {isImage(file.content_type) ? (
-                          <ImageIcon size={20} color="var(--text-med)" />
-                        ) : (
-                          <FileIcon size={20} color="var(--text-med)" />
-                        )}
-                        <span style={{ flex: 2, fontWeight: 500, wordBreak: "break-word" }}>
-                          {file.name}
-                        </span>
-                        <span style={{ flex: 1, color: "var(--text-med)", fontSize: "14px" }}>
-                          {file.status === "pending" ? "Upload incomplete" : formatRelativeDate(file.updated_at)}
-                        </span>
-                        <span
-                          style={{
-                            width: "90px",
-                            color: "var(--text-med)",
-                            fontSize: "14px",
-                            textAlign: "right",
-                          }}
-                        >
-                          {formatBytes(file.size)}
-                        </span>
-                        <div style={{ display: "flex", gap: "4px" }}>
-                          <IconButton
-                            title="Download"
-                            disabled={file.status !== "ready"}
-                            onClick={() => void guard(() => browser.download(file))}
-                          >
-                            <Download size={15} />
-                          </IconButton>
-                          <RowActions
-                            onRename={() => handleRename(file)}
-                            onDelete={() => handleDelete(file)}
-                          />
-                        </div>
-                      </div>
+                        item={file}
+                        isSelected={selected.has(file.id)}
+                        readOnly={view === "trash"}
+                        onOpen={() => openItem(file)}
+                        onToggleSelect={b.toggleSelected}
+                        onDownload={() => void guard(() => b.download(file))}
+                        onRename={() => setDialog({ kind: "rename", item: file })}
+                        onTrash={() => setDialog({ kind: "trash", items: [file] })}
+                        onRestore={() => void guard(() => b.restoreItems([file.id]))}
+                      />
                     ))}
                   </div>
                 </>
               )}
             </>
           )}
+
+          {/* Watched by the observer; fetches the next page before the
+              user actually reaches the bottom. */}
+          <div ref={sentinel} style={{ height: 1 }} />
+          {loadingMore && (
+            <p style={{ padding: "20px 0", color: "var(--text-med)", fontSize: 14 }}>
+              Loading more…
+            </p>
+          )}
+          {!loading && b.total > 0 && (
+            <p style={{ padding: "24px 0", color: "var(--text-low)", fontSize: 13 }}>
+              Showing {items.length} of {b.total}
+            </p>
+          )}
         </div>
       </main>
 
-      {/* Drag overlay */}
       {dragging && (
         <div
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(99,102,241,0.12)",
+            background: "rgba(250,255,105,0.10)",
             border: "2px dashed var(--primary)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: "20px",
+            fontSize: 20,
             fontWeight: 600,
             pointerEvents: "none",
             zIndex: 100,
@@ -459,27 +325,670 @@ export function FileBrowser() {
           Drop files to upload
         </div>
       )}
+
+      {/* --- dialogs --- */}
+
+      {dialog.kind === "newFolder" && (
+      <PromptModal
+        title="New folder"
+        label="Folder name"
+        confirmLabel="Create"
+        onCancel={closeDialog}
+        onSubmit={(name) => {
+          closeDialog();
+          void guard(() => b.createFolder(name));
+        }}
+      />
+      )}
+
+      {dialog.kind === "rename" && (
+      <PromptModal
+        title="Rename"
+        label="New name"
+        initialValue={dialog.item.name}
+        onCancel={closeDialog}
+        onSubmit={(name) => {
+          if (dialog.kind !== "rename") return;
+          const item = dialog.item;
+          closeDialog();
+          void guard(() => b.rename(item, name));
+        }}
+      />
+      )}
+
+      <ConfirmModal
+        open={dialog.kind === "trash"}
+        title="Move to Trash"
+        confirmLabel="Move to Trash"
+        body={
+          dialog.kind === "trash" ? (
+            <>
+              Move {describe(dialog.items)} to Trash?
+              {dialog.items.some((i) => i.type === "folder") &&
+                " Everything inside the selected folders goes too."}{" "}
+              You can restore from Trash for 30 days.
+            </>
+          ) : null
+        }
+        onCancel={closeDialog}
+        onConfirm={() => {
+          if (dialog.kind !== "trash") return;
+          const ids = dialog.items.map((i) => i.id);
+          closeDialog();
+          void guard(() => b.trashItems(ids));
+        }}
+      />
+
+      <ConfirmModal
+        open={dialog.kind === "deleteForever"}
+        title="Delete permanently"
+        confirmLabel="Delete forever"
+        destructive
+        body={
+          dialog.kind === "deleteForever" ? (
+            <>
+              Permanently delete {describe(dialog.items)}? The files are removed from
+              storage and <strong>this cannot be undone</strong>.
+            </>
+          ) : null
+        }
+        onCancel={closeDialog}
+        onConfirm={() => {
+          if (dialog.kind !== "deleteForever") return;
+          const ids = dialog.items.map((i) => i.id);
+          closeDialog();
+          void guard(() => b.deleteForever(ids));
+        }}
+      />
+
+      {dialog.kind === "move" && (
+        <MoveDialog
+          items={dialog.items}
+          onCancel={closeDialog}
+          onMove={(parentId) => {
+            const ids = dialog.items.map((i) => i.id);
+            closeDialog();
+            void guard(() => b.moveTo(ids, parentId));
+          }}
+        />
+      )}
+
+      {lightboxIndex >= 0 && (
+        <Lightbox
+          items={viewable}
+          index={lightboxIndex}
+          onClose={() => setLightboxId(null)}
+          onNavigate={(next) => setLightboxId(viewable[next]?.id ?? null)}
+          onDownload={(item) => void guard(() => b.download(item))}
+        />
+      )}
     </div>
   );
 }
 
-const toolbarBtn: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "8px",
-  padding: "9px 14px",
-  borderRadius: "10px",
-  fontSize: "14px",
-  cursor: "pointer",
-  width: "auto",
-};
+/* ------------------------------------------------------------------ */
+
+function describe(items: Item[]): string {
+  return items.length === 1 ? `“${items[0].name}”` : `${items.length} items`;
+}
 
 const sectionHeading: React.CSSProperties = {
-  fontSize: "15px",
+  fontSize: 14,
   fontWeight: 600,
   color: "var(--text-med)",
-  marginBottom: "14px",
+  marginBottom: 12,
 };
+
+function Sidebar({
+  view,
+  setView,
+  usage,
+  open,
+  onClose,
+}: {
+  view: View;
+  setView: (v: View) => void;
+  usage: ReturnType<typeof useFiles>["usage"];
+  open: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      {/* Backdrop only exists on small screens, where the sidebar is a
+          drawer rather than a column. */}
+      {open && (
+        <div
+          onClick={onClose}
+          className="sidebar-backdrop"
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 90 }}
+        />
+      )}
+      <aside
+        className={`dashboard-sidebar${open ? " is-open" : ""}`}
+        style={{
+          width: "var(--sidebar-width)",
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+          padding: "16px 14px",
+          background: "var(--surface-card)",
+          borderRight: "1px solid var(--hairline)",
+        }}
+      >
+        <div style={{ padding: "8px 10px 20px", display: "flex", alignItems: "center", gap: 10 }}>
+          <div
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: "var(--radius-md)",
+              background: "var(--primary)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Cloud size={18} color="var(--on-primary)" strokeWidth={2.5} />
+          </div>
+          <h1 style={{ fontSize: 18, margin: 0, fontWeight: 700 }}>Nimbus</h1>
+        </div>
+
+        <nav style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
+          {NAV.map((entry) => {
+            const active = view === entry.key;
+            return (
+              <button
+                key={entry.key}
+                type="button"
+                onClick={() => setView(entry.key)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "10px 12px",
+                  borderRadius: "var(--radius-md)",
+                  background: active ? "var(--surface-elevated)" : "transparent",
+                  color: active ? "var(--text-high)" : "var(--text-med)",
+                  fontWeight: active ? 600 : 500,
+                  border: "none",
+                  borderLeft: `3px solid ${active ? "var(--primary)" : "transparent"}`,
+                  cursor: "pointer",
+                  font: "inherit",
+                  fontSize: 14,
+                  textAlign: "left",
+                }}
+              >
+                {entry.icon}
+                {entry.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        <StorageWidget usage={usage} />
+      </aside>
+    </>
+  );
+}
+
+function Toolbar({
+  browser,
+  searchRef,
+  onNewFolder,
+  onUploadClick,
+  onOpenSidebar,
+}: {
+  browser: ReturnType<typeof useFiles>;
+  searchRef: React.RefObject<HTMLInputElement | null>;
+  onNewFolder: () => void;
+  onUploadClick: () => void;
+  onOpenSidebar: () => void;
+}) {
+  const readOnly = browser.view === "trash";
+  return (
+    <header
+      style={{
+        minHeight: "var(--header-height)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "10px clamp(16px, 4vw, 40px)",
+        borderBottom: "1px solid var(--hairline)",
+        gap: 12,
+        flexWrap: "wrap",
+        position: "sticky",
+        top: 0,
+        background: "var(--canvas)",
+        zIndex: 20,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 200 }}>
+        <button
+          type="button"
+          className="btn-secondary sidebar-toggle"
+          onClick={onOpenSidebar}
+          aria-label="Open menu"
+          style={{ padding: "0 12px", display: "none" }}
+        >
+          <FolderIcon size={16} />
+        </button>
+
+        <div style={{ position: "relative", flex: 1, maxWidth: 380 }}>
+          <Search
+            size={15}
+            color="var(--text-low)"
+            style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }}
+          />
+          <input
+            ref={searchRef}
+            type="text"
+            value={browser.query}
+            onChange={(e) => browser.setQuery(e.target.value)}
+            placeholder="Search all files…  (press /)"
+            className="form-input"
+            style={{ height: 40, fontSize: 14, paddingLeft: 34, paddingRight: 30 }}
+          />
+          {browser.query && (
+            <button
+              type="button"
+              onClick={() => browser.setQuery("")}
+              aria-label="Clear search"
+              style={{
+                position: "absolute",
+                right: 8,
+                top: "50%",
+                transform: "translateY(-50%)",
+                background: "transparent",
+                border: "none",
+                color: "var(--text-med)",
+                cursor: "pointer",
+                display: "flex",
+              }}
+            >
+              <X size={15} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {browser.view === "files" && !browser.query && (
+          <select
+            value={browser.sort}
+            onChange={(e) => browser.setSort(e.target.value as SortKey)}
+            aria-label="Sort by"
+            className="form-input"
+            style={{ height: 40, width: "auto", fontSize: 14, cursor: "pointer" }}
+          >
+            {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
+              <option key={key} value={key}>
+                {SORT_LABELS[key]}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {!readOnly && (
+          <>
+            <button type="button" onClick={onNewFolder} className="btn-secondary">
+              <FolderPlus size={16} /> New folder
+            </button>
+            <button type="button" onClick={onUploadClick} className="btn-primary">
+              <Upload size={16} /> Upload
+            </button>
+          </>
+        )}
+      </div>
+    </header>
+  );
+}
+
+function Breadcrumbs({ browser }: { browser: ReturnType<typeof useFiles> }) {
+  return (
+    <nav
+      aria-label="Breadcrumb"
+      style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, marginBottom: 20 }}
+    >
+      {browser.trail.map((crumb, index) => {
+        const last = index === browser.trail.length - 1;
+        return (
+          <React.Fragment key={`${crumb.id ?? "root"}-${index}`}>
+            {index > 0 && <ChevronRight size={15} color="var(--text-low)" />}
+            <button
+              type="button"
+              onClick={() => browser.navigateTo(index)}
+              disabled={last}
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: "2px 4px",
+                cursor: last ? "default" : "pointer",
+                color: last ? "var(--text-high)" : "var(--text-med)",
+                fontWeight: last ? 700 : 500,
+                fontSize: last ? 22 : 15,
+                letterSpacing: last ? "-0.02em" : 0,
+                font: "inherit",
+              }}
+            >
+              {crumb.name}
+            </button>
+          </React.Fragment>
+        );
+      })}
+    </nav>
+  );
+}
+
+function SelectionBar({
+  count,
+  view,
+  onClear,
+  onMove,
+  onTrash,
+  onRestore,
+  onDeleteForever,
+}: {
+  count: number;
+  view: View;
+  onClear: () => void;
+  onMove: () => void;
+  onTrash: () => void;
+  onRestore: () => void;
+  onDeleteForever: () => void;
+}) {
+  return (
+    <div
+      className="card"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "10px 14px",
+        marginBottom: 18,
+        flexWrap: "wrap",
+      }}
+    >
+      <strong style={{ fontSize: 14, color: "var(--text-high)" }}>{count} selected</strong>
+      <div style={{ flex: 1 }} />
+      {view === "trash" ? (
+        <>
+          <button type="button" className="btn-secondary" onClick={onRestore}>
+            <RotateCcw size={15} /> Restore
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={onDeleteForever}
+            style={{ color: "var(--error)" }}
+          >
+            <Trash2 size={15} /> Delete forever
+          </button>
+        </>
+      ) : (
+        <>
+          <button type="button" className="btn-secondary" onClick={onMove}>
+            Move to…
+          </button>
+          <button type="button" className="btn-secondary" onClick={onTrash}>
+            <Trash2 size={15} /> Trash
+          </button>
+        </>
+      )}
+      <button type="button" className="btn-secondary" onClick={onClear} aria-label="Clear selection">
+        <X size={15} />
+      </button>
+    </div>
+  );
+}
+
+function UploadList({
+  uploads,
+  onDismiss,
+}: {
+  uploads: ReturnType<typeof useFiles>["uploads"];
+  onDismiss: (key: string) => void;
+}) {
+  return (
+    <div style={{ marginBottom: 20, display: "flex", flexDirection: "column", gap: 8 }}>
+      {uploads.map((u) => (
+        <div
+          key={u.key}
+          className="card"
+          style={{ padding: "10px 14px", fontSize: 14 }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {u.status === "uploading" && (
+              <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
+            )}
+            <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+              {u.name}
+            </span>
+            <span style={{ color: u.status === "error" ? "var(--error)" : "var(--text-med)" }}>
+              {u.status === "uploading" &&
+                (u.progress === null ? "Uploading…" : `${Math.round(u.progress * 100)}%`)}
+              {u.status === "done" && "Done"}
+              {u.status === "error" && (u.error ?? "Failed")}
+            </span>
+            {u.status === "error" && (
+              <button
+                type="button"
+                onClick={() => onDismiss(u.key)}
+                aria-label="Dismiss"
+                style={{ background: "transparent", border: "none", color: "var(--text-med)", cursor: "pointer", display: "flex" }}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          {u.status === "uploading" && u.progress !== null && (
+            <div
+              style={{
+                marginTop: 8,
+                height: 3,
+                borderRadius: 2,
+                background: "var(--hairline-strong)",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${u.progress * 100}%`,
+                  height: "100%",
+                  background: "var(--primary)",
+                  transition: "width 150ms linear",
+                }}
+              />
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FolderCard({
+  item,
+  isSelected,
+  readOnly,
+  onOpen,
+  onToggleSelect,
+  onRename,
+  onTrash,
+}: {
+  item: Item;
+  isSelected: boolean;
+  readOnly: boolean;
+  onOpen: () => void;
+  onToggleSelect: (id: string, exclusive?: boolean) => void;
+  onRename: () => void;
+  onTrash: () => void;
+}) {
+  return (
+    <div
+      className="card animate-hover"
+      onDoubleClick={onOpen}
+      onClick={(e) => (e.metaKey || e.ctrlKey) && onToggleSelect(item.id)}
+      style={{
+        padding: 16,
+        cursor: "pointer",
+        outline: isSelected ? "2px solid var(--primary)" : "none",
+        outlineOffset: -1,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={() => onToggleSelect(item.id)}
+          onClick={(e) => e.stopPropagation()}
+          aria-label={`Select ${item.name}`}
+          style={{ accentColor: "var(--primary)", cursor: "pointer" }}
+        />
+        {!readOnly && (
+          <div style={{ display: "flex", gap: 2 }}>
+            <IconButton title="Rename" onClick={onRename}>
+              <Pencil size={14} />
+            </IconButton>
+            <IconButton title="Move to Trash" onClick={onTrash}>
+              <Trash2 size={14} />
+            </IconButton>
+          </div>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={onOpen}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          marginTop: 12,
+          background: "transparent",
+          border: "none",
+          padding: 0,
+          color: "var(--text-high)",
+          fontSize: 15,
+          fontWeight: 600,
+          cursor: "pointer",
+          textAlign: "left",
+          font: "inherit",
+          width: "100%",
+          wordBreak: "break-word",
+        }}
+      >
+        <FolderIcon size={20} color="var(--primary)" />
+        {item.name}
+      </button>
+      <p style={{ fontSize: 12, color: "var(--text-med)", marginTop: 6 }}>
+        {formatRelativeDate(item.updated_at)}
+      </p>
+    </div>
+  );
+}
+
+function FileRow({
+  item,
+  isSelected,
+  readOnly,
+  onOpen,
+  onToggleSelect,
+  onDownload,
+  onRename,
+  onTrash,
+  onRestore,
+}: {
+  item: Item;
+  isSelected: boolean;
+  readOnly: boolean;
+  onOpen: () => void;
+  onToggleSelect: (id: string, exclusive?: boolean) => void;
+  onDownload: () => void;
+  onRename: () => void;
+  onTrash: () => void;
+  onRestore: () => void;
+}) {
+  return (
+    <div
+      className="card animate-hover"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "10px 14px",
+        outline: isSelected ? "2px solid var(--primary)" : "none",
+        outlineOffset: -1,
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={isSelected}
+        onChange={() => onToggleSelect(item.id)}
+        aria-label={`Select ${item.name}`}
+        style={{ accentColor: "var(--primary)", cursor: "pointer" }}
+      />
+      {iconFor(item)}
+
+      <button
+        type="button"
+        onClick={onOpen}
+        style={{
+          flex: 2,
+          minWidth: 0,
+          background: "transparent",
+          border: "none",
+          padding: 0,
+          color: "var(--text-high)",
+          fontWeight: 500,
+          fontSize: 15,
+          textAlign: "left",
+          cursor: "pointer",
+          font: "inherit",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {item.name}
+      </button>
+
+      <span className="row-meta" style={{ flex: 1, color: "var(--text-med)", fontSize: 13 }}>
+        {item.status === "pending"
+          ? "Upload incomplete"
+          : formatRelativeDate(item.deleted_at ?? item.updated_at)}
+      </span>
+      <span
+        className="row-meta"
+        style={{ width: 80, textAlign: "right", color: "var(--text-med)", fontSize: 13 }}
+      >
+        {formatBytes(item.size)}
+      </span>
+
+      <div style={{ display: "flex", gap: 2 }}>
+        {readOnly ? (
+          <IconButton title="Restore" onClick={onRestore}>
+            <RotateCcw size={15} />
+          </IconButton>
+        ) : (
+          <>
+            <IconButton
+              title="Download"
+              onClick={onDownload}
+              disabled={item.status !== "ready"}
+            >
+              <Download size={15} />
+            </IconButton>
+            <IconButton title="Rename" onClick={onRename}>
+              <Pencil size={15} />
+            </IconButton>
+            <IconButton title="Move to Trash" onClick={onTrash}>
+              <Trash2 size={15} />
+            </IconButton>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function IconButton({
   children,
@@ -497,15 +1006,18 @@ function IconButton({
       type="button"
       title={title}
       aria-label={title}
-      onClick={onClick}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
       disabled={disabled}
       style={{
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        width: "30px",
-        height: "30px",
-        borderRadius: "8px",
+        width: 30,
+        height: 30,
+        borderRadius: "var(--radius-md)",
         background: "transparent",
         border: "none",
         color: disabled ? "var(--text-low)" : "var(--text-med)",
@@ -518,24 +1030,21 @@ function IconButton({
   );
 }
 
-function RowActions({ onRename, onDelete }: { onRename: () => void; onDelete: () => void }) {
-  return (
-    <div style={{ display: "flex", gap: "4px" }}>
-      <IconButton title="Rename" onClick={onRename}>
-        <Pencil size={15} />
-      </IconButton>
-      <IconButton title="Delete" onClick={onDelete}>
-        <Trash2 size={15} />
-      </IconButton>
-    </div>
-  );
-}
+function EmptyState({ view, query }: { view: View; query: string }) {
+  const [title, hint] = query
+    ? ["Nothing matches your search", `No files or folders named “${query}”.`]
+    : view === "trash"
+    ? ["Trash is empty", "Deleted items appear here and stay for 30 days."]
+    : view === "photos"
+    ? ["No photos yet", "Upload images and they'll be grouped by date taken."]
+    : view === "recent"
+    ? ["Nothing recent", "Files you upload or change will show up here."]
+    : ["This folder is empty", "Drag files anywhere here, or use the Upload button."];
 
-function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
     <div style={{ padding: "64px 0", textAlign: "center", color: "var(--text-med)" }}>
-      <p style={{ fontSize: "17px", fontWeight: 600, color: "var(--text-high)" }}>{title}</p>
-      {hint && <p style={{ fontSize: "14px", marginTop: "8px" }}>{hint}</p>}
+      <p style={{ fontSize: 17, fontWeight: 600, color: "var(--text-high)" }}>{title}</p>
+      <p style={{ fontSize: 14, marginTop: 8 }}>{hint}</p>
     </div>
   );
 }

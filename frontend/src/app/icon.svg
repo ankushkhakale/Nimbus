@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Nimbus">
+  <!--
+    Nimbus mark.
+
+    Solid shapes, no strokes or gradients: at 16x16 a stroked outline
+    collapses into mush, and the design system uses no gradients anyway.
+
+    The dark tile is load-bearing rather than decorative — the accent
+    yellow has almost no contrast against white browser chrome, so the
+    mark would vanish in a light-theme tab without it.
+
+    Geometry is tuned for the 16px case: the cloud spans ~66% of the tile
+    so it reads as a mark rather than a small logo adrift in padding. The
+    lobes are deliberately asymmetric (larger one right and raised) to
+    keep the silhouette distinguishable from a plain blob when detail is
+    gone.
+
+    Kept in sync by hand with the Pillow renderer that produces
+    favicon.ico and apple-icon.png — change both together.
+  -->
+  <rect width="64" height="64" rx="14" fill="#0a0a0a"/>
+  <g fill="#faff69">
+    <rect x="11" y="36" width="42" height="13" rx="6.5"/>
+    <circle cx="24" cy="34" r="11"/>
+    <circle cx="39" cy="29" r="14"/>
+  </g>
+</svg>

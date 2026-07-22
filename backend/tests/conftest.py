@@ -54,16 +54,131 @@ class FakeItemRepository:
         self._next += 1
         return item_id
 
-    async def get(self, user_id: str, item_id: str) -> Item | None:
-        item = self._items.get(item_id)
-        return item if item and item.user_id == user_id else None
-
-    async def list_children(self, user_id: str, parent_id: str | None) -> list[Item]:
-        kids = [
+    def _mine(self, user_id: str, *, trashed: bool = False) -> list[Item]:
+        return [
             i for i in self._items.values()
-            if i.user_id == user_id and i.parent_id == parent_id
+            if i.user_id == user_id and (i.deleted_at is not None) == trashed
         ]
-        return sorted(kids, key=lambda i: (i.type is not ItemType.FOLDER, i.name))
+
+    async def get(self, user_id: str, item_id: str, *, include_trashed: bool = False) -> Item | None:
+        item = self._items.get(item_id)
+        if not item or item.user_id != user_id:
+            return None
+        if item.deleted_at is not None and not include_trashed:
+            return None
+        return item
+
+    async def list_children(
+        self,
+        user_id: str,
+        parent_id: str | None,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+        sort: str = "name",
+    ) -> tuple[list[Item], int]:
+        kids = [i for i in self._mine(user_id) if i.parent_id == parent_id]
+        reverse = sort.endswith("_desc")
+        if sort.startswith("size"):
+            kids.sort(key=lambda i: (i.type is not ItemType.FOLDER, -(i.size or 0)))
+        elif sort.startswith("updated"):
+            kids.sort(key=lambda i: (i.type is not ItemType.FOLDER, i.updated_at), reverse=reverse)
+        else:
+            kids.sort(key=lambda i: (i.type is not ItemType.FOLDER, i.name.lower()), reverse=reverse)
+        return kids[offset : offset + limit], len(kids)
+
+    async def list_images(
+        self, user_id: str, *, offset: int = 0, limit: int = 100
+    ) -> tuple[list[Item], int]:
+        imgs = [
+            i for i in self._mine(user_id)
+            if i.type is ItemType.FILE
+            and i.status is UploadStatus.READY
+            and (i.content_type or "").startswith("image/")
+        ]
+        imgs.sort(key=lambda i: i.taken_at or i.created_at, reverse=True)
+        return imgs[offset : offset + limit], len(imgs)
+
+    async def search(
+        self, user_id: str, term: str, *, offset: int = 0, limit: int = 100
+    ) -> tuple[list[Item], int]:
+        hits = [i for i in self._mine(user_id) if term.lower() in i.name.lower()]
+        hits.sort(key=lambda i: (i.type is not ItemType.FOLDER, i.name.lower()))
+        return hits[offset : offset + limit], len(hits)
+
+    async def list_recent(self, user_id: str, *, limit: int = 20) -> list[Item]:
+        files = [
+            i for i in self._mine(user_id)
+            if i.type is ItemType.FILE and i.status is UploadStatus.READY
+        ]
+        files.sort(key=lambda i: i.updated_at, reverse=True)
+        return files[:limit]
+
+    async def list_trashed(
+        self, user_id: str, *, offset: int = 0, limit: int = 100
+    ) -> tuple[list[Item], int]:
+        gone = self._mine(user_id, trashed=True)
+        gone.sort(key=lambda i: i.deleted_at or i.updated_at, reverse=True)
+        return gone[offset : offset + limit], len(gone)
+
+    async def name_exists(self, user_id: str, parent_id: str | None, name: str) -> bool:
+        return any(
+            i.parent_id == parent_id and i.name == name for i in self._mine(user_id)
+        )
+
+    async def trash(self, user_id: str, item_ids: list[str]) -> int:
+        now = datetime.now(timezone.utc)
+        count = 0
+        for item_id in item_ids:
+            item = await self.get(user_id, item_id)
+            if item is None:
+                continue
+            self._items[item_id] = item.model_copy(
+                update={"deleted_at": now, "deleted_from": item.parent_id}
+            )
+            count += 1
+        return count
+
+    async def restore(self, user_id: str, item_ids: list[str]) -> int:
+        count = 0
+        for item_id in item_ids:
+            item = await self.get(user_id, item_id, include_trashed=True)
+            if item is None or item.deleted_at is None:
+                continue
+            target = item.deleted_from
+            if target is not None:
+                parent = self._items.get(target)
+                if parent is None or parent.deleted_at is not None:
+                    target = None
+            self._items[item_id] = item.model_copy(
+                update={"deleted_at": None, "deleted_from": None, "parent_id": target}
+            )
+            count += 1
+        return count
+
+    async def hard_delete(self, user_id: str, item_id: str) -> bool:
+        item = self._items.get(item_id)
+        if item is None or item.user_id != user_id:
+            return False
+        del self._items[item_id]
+        return True
+
+    async def usage_by_category(self, user_id: str) -> dict[str, tuple[int, int]]:
+        out: dict[str, tuple[int, int]] = {}
+        for i in self._mine(user_id):
+            if i.type is not ItemType.FILE:
+                continue
+            ct = i.content_type or ""
+            key = (
+                "images" if ct.startswith("image/")
+                else "video" if ct.startswith("video/")
+                else "audio" if ct.startswith("audio/")
+                else "documents" if any(t in ct for t in ("pdf", "document", "text"))
+                else "other"
+            )
+            b, c = out.get(key, (0, 0))
+            out[key] = (b + (i.size or 0), c + 1)
+        return out
 
     async def create_folder(self, user_id: str, name: str, parent_id: str | None) -> Item:
         item = Item(id=self._new_id(), user_id=user_id, name=name,
@@ -99,24 +214,23 @@ class FakeItemRepository:
         self._items[item_id] = updated
         return updated
 
-    async def delete(self, user_id: str, item_id: str) -> bool:
-        item = await self.get(user_id, item_id)
-        if item is None:
-            return False
-        del self._items[item_id]
-        return True
-
     async def usage(self, user_id: str) -> tuple[int, int, int]:
-        mine = [i for i in self._items.values() if i.user_id == user_id]
+        mine = self._mine(user_id)
         files = [i for i in mine if i.type is ItemType.FILE]
         folders = [i for i in mine if i.type is ItemType.FOLDER]
         return sum(i.size or 0 for i in files), len(files), len(folders)
 
-    async def descendants(self, user_id: str, folder_id: str) -> list[Item]:
+    async def descendants(
+        self, user_id: str, folder_id: str, *, include_trashed: bool = False
+    ) -> list[Item]:
         found, frontier = [], [folder_id]
         while frontier:
-            level = [i for i in self._items.values()
-                     if i.user_id == user_id and i.parent_id in frontier]
+            level = [
+                i for i in self._items.values()
+                if i.user_id == user_id
+                and i.parent_id in frontier
+                and (include_trashed or i.deleted_at is None)
+            ]
             if not level:
                 break
             found.extend(level)
@@ -135,7 +249,14 @@ class FakeStorage:
         return f"https://upload.test/{key}"
 
     def download_url(self, key, *, filename=None):
-        return f"https://download.test/{key}?filename={filename}"
+        # Mirrors S3ObjectStorage: the disposition is only attached when a
+        # filename is supplied, which is what distinguishes a download URL
+        # from an inline preview URL.
+        return (
+            f"https://download.test/{key}?filename={filename}"
+            if filename
+            else f"https://download.test/{key}"
+        )
 
     def delete(self, key):
         self.deleted.append(key)

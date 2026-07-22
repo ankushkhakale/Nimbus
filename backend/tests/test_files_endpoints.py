@@ -3,6 +3,11 @@
 FILES = "/api/v1/files"
 
 
+def _list(client, headers, **params):
+    """Unwrap the page envelope; most tests only care about the items."""
+    return client.get(FILES, params=params or None, headers=headers).json()["items"]
+
+
 def _folder(client, headers, name="Photos", parent=None):
     return client.post(f"{FILES}/folders", json={"name": name, "parent_id": parent},
                        headers=headers)
@@ -33,8 +38,7 @@ def test_create_folder_and_list_at_root(client, auth_headers):
     assert r.json()["name"] == "Photos"
     assert r.json()["type"] == "folder"
 
-    listing = client.get(FILES, headers=h).json()
-    assert [i["name"] for i in listing] == ["Photos"]
+    assert [i["name"] for i in _list(client, h)] == ["Photos"]
 
 
 def test_nested_folder_listing_is_scoped_to_parent(client, auth_headers):
@@ -42,16 +46,15 @@ def test_nested_folder_listing_is_scoped_to_parent(client, auth_headers):
     parent = _folder(client, h, "Photos").json()["id"]
     _folder(client, h, "2024", parent)
 
-    assert [i["name"] for i in client.get(FILES, headers=h).json()] == ["Photos"]
-    kids = client.get(FILES, params={"parent_id": parent}, headers=h).json()
-    assert [i["name"] for i in kids] == ["2024"]
+    assert [i["name"] for i in _list(client, h)] == ["Photos"]
+    assert [i["name"] for i in _list(client, h, parent_id=parent)] == ["2024"]
 
 
 def test_folders_sort_before_files(client, auth_headers):
     h = auth_headers()
     _upload(client, h, "aaa.txt")
     _folder(client, h, "zzz")
-    names = [i["name"] for i in client.get(FILES, headers=h).json()]
+    names = [i["name"] for i in _list(client, h)]
     assert names == ["zzz", "aaa.txt"]
 
 
@@ -159,7 +162,7 @@ def test_move_item_into_folder(client, auth_headers):
     item_id = _upload(client, h).json()["item"]["id"]
     r = client.patch(f"{FILES}/{item_id}", json={"parent_id": dest}, headers=h)
     assert r.json()["parent_id"] == dest
-    assert [i["id"] for i in client.get(FILES, params={"parent_id": dest}, headers=h).json()] == [item_id]
+    assert [i["id"] for i in _list(client, h, parent_id=dest)] == [item_id]
 
 
 def test_rename_without_parent_field_does_not_move(client, auth_headers):
@@ -196,27 +199,84 @@ def test_cannot_move_folder_into_own_descendant(client, auth_headers):
 
 # --- delete -------------------------------------------------------------
 
-def test_delete_file_removes_object_and_row(client, auth_headers, fake_storage, fake_item_repo):
+def test_delete_moves_to_trash_and_keeps_the_object(client, auth_headers, fake_storage,
+                                                    fake_item_repo):
+    """Deletion is reversible: the row is hidden, the bytes stay put.
+
+    Removing the S3 object here would make Restore give back an empty file.
+    """
     h = auth_headers()
     item_id = _upload(client, h).json()["item"]["id"]
     key = fake_item_repo._items[item_id].s3_key
 
     assert client.delete(f"{FILES}/{item_id}", headers=h).status_code == 204
-    assert key in fake_storage.deleted
-    assert client.get(FILES, headers=h).json() == []
+    assert _list(client, h) == []
+    assert key not in fake_storage.deleted
+    assert [i["id"] for i in client.get(f"{FILES}/trash", headers=h).json()["items"]] == [item_id]
 
 
-def test_delete_folder_removes_whole_subtree(client, auth_headers, fake_storage, fake_item_repo):
+def test_deleting_a_folder_trashes_its_whole_subtree(client, auth_headers):
+    """Descendants must go too, or they linger unreachable but counted."""
     h = auth_headers()
     top = _folder(client, h, "top").json()["id"]
     mid = _folder(client, h, "mid", top).json()["id"]
-    f1 = _upload(client, h, "a.txt", top).json()["item"]["id"]
-    f2 = _upload(client, h, "b.txt", mid).json()["item"]["id"]
-    keys = [fake_item_repo._items[i].s3_key for i in (f1, f2)]
+    _upload(client, h, "a.txt", top)
+    _upload(client, h, "b.txt", mid)
 
     assert client.delete(f"{FILES}/{top}", headers=h).status_code == 204
-    assert all(k in fake_storage.deleted for k in keys)
-    assert client.get(FILES, headers=h).json() == []
+    assert _list(client, h) == []
+    assert client.get(f"{FILES}/trash", headers=h).json()["total"] == 4
+
+
+def test_restore_returns_an_item_to_its_original_folder(client, auth_headers):
+    h = auth_headers()
+    parent = _folder(client, h, "Keep").json()["id"]
+    item_id = _upload(client, h, "a.txt", parent).json()["item"]["id"]
+
+    client.delete(f"{FILES}/{item_id}", headers=h)
+    assert _list(client, h, parent_id=parent) == []
+
+    r = client.post(f"{FILES}/restore", json={"item_ids": [item_id]}, headers=h)
+    assert r.status_code == 200 and r.json()["affected"] == 1
+    assert [i["id"] for i in _list(client, h, parent_id=parent)] == [item_id]
+
+
+def test_restore_falls_back_to_root_when_the_old_parent_is_gone(client, auth_headers):
+    """Restoring into a folder that no longer exists would orphan the item."""
+    h = auth_headers()
+    parent = _folder(client, h, "Gone").json()["id"]
+    item_id = _upload(client, h, "a.txt", parent).json()["item"]["id"]
+
+    client.delete(f"{FILES}/{parent}", headers=h)  # trashes parent and child
+    client.post(f"{FILES}/delete-permanently", json={"item_ids": [parent]}, headers=h)
+
+    client.post(f"{FILES}/restore", json={"item_ids": [item_id]}, headers=h)
+    assert [i["id"] for i in _list(client, h)] == [item_id]
+
+
+def test_permanent_delete_removes_object_and_thumbnail(client, auth_headers, fake_storage,
+                                                       fake_item_repo):
+    h = auth_headers()
+    item_id = _upload(client, h).json()["item"]["id"]
+    key = fake_item_repo._items[item_id].s3_key
+    client.delete(f"{FILES}/{item_id}", headers=h)
+
+    r = client.post(f"{FILES}/delete-permanently", json={"item_ids": [item_id]}, headers=h)
+    assert r.json()["affected"] == 1
+    assert key in fake_storage.deleted
+    assert client.get(f"{FILES}/trash", headers=h).json()["total"] == 0
+
+
+def test_trashed_items_stop_counting_toward_usage(client, auth_headers, fake_storage,
+                                                  fake_item_repo):
+    h = auth_headers()
+    item_id = _upload(client, h).json()["item"]["id"]
+    fake_storage.uploaded[fake_item_repo._items[item_id].s3_key] = 4096
+    client.post(f"{FILES}/{item_id}/complete", headers=h)
+    assert client.get(f"{FILES}/usage", headers=h).json()["bytes_stored"] == 4096
+
+    client.delete(f"{FILES}/{item_id}", headers=h)
+    assert client.get(f"{FILES}/usage", headers=h).json()["bytes_stored"] == 0
 
 
 # --- usage --------------------------------------------------------------
@@ -264,7 +324,7 @@ def test_user_cannot_list_another_users_items(client, auth_headers):
     a = auth_headers("a@example.com")
     b = auth_headers("b@example.com")
     _folder(client, a, "A-secret")
-    assert client.get(FILES, headers=b).json() == []
+    assert _list(client, b) == []
 
 
 def test_user_cannot_read_another_users_item(client, auth_headers):
