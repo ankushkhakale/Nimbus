@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /**
-   * Static export: Cloudflare Pages serves files, it does not run a
+   * Static export: the host (Vercel) serves files rather than running a
    * Next.js server. Every page here is client-rendered and talks to the
    * API Gateway backend, so nothing needs server-side execution.
    *

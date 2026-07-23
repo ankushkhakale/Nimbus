@@ -21,7 +21,11 @@ export function UserMenu() {
   if (!user) return null;
 
   const handleSignOut = () => {
-    logout();
+    // Not awaited: local state clears synchronously inside logout(), so
+    // the redirect is immediate, while the server-side revocation
+    // continues in the background. Awaiting would leave the menu open
+    // during a cold start.
+    void logout();
     router.replace("/auth/login");
   };
 

@@ -1,19 +1,47 @@
+import logging
+
 from fastapi import HTTPException, status
 from pymongo.errors import DuplicateKeyError
 
 from app.models.user import UserInDB
+from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.user_repository import UserRepository
-from app.utils.security import create_access_token, hash_password, verify_password
+from app.utils.security import (
+    create_access_token,
+    hash_password,
+    hash_refresh_token,
+    new_refresh_token,
+    refresh_token_expiry,
+    verify_password,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class AuthService:
-    def __init__(self, user_repository: UserRepository):
+    def __init__(
+        self,
+        user_repository: UserRepository,
+        refresh_tokens: RefreshTokenRepository | None = None,
+    ):
         self._users = user_repository
+        self._refresh = refresh_tokens
 
     _EMAIL_TAKEN = HTTPException(
         status_code=status.HTTP_409_CONFLICT,
         detail="An account with this email already exists.",
     )
+
+    @staticmethod
+    def invalid_session() -> HTTPException:
+        # One message for every failure mode — expired, unknown, replayed
+        # — so a caller cannot distinguish "never existed" from "revoked".
+        return HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired. Please sign in again.",
+        )
+
+    # --- accounts ------------------------------------------------------
 
     async def register(self, email: str, full_name: str, password: str) -> UserInDB:
         if await self._users.get_by_email(email):
@@ -35,6 +63,64 @@ class AuthService:
             )
         return user
 
+    # --- tokens --------------------------------------------------------
+
     @staticmethod
     def issue_token(user: UserInDB) -> str:
         return create_access_token(subject=user.id)
+
+    async def issue_refresh_token(self, user: UserInDB) -> str:
+        """Mint a refresh token and record its hash."""
+        if self._refresh is None:  # pragma: no cover - wiring guard
+            raise RuntimeError("Refresh token repository is not configured.")
+        token = new_refresh_token()
+        await self._refresh.create(user.id, hash_refresh_token(token), refresh_token_expiry())
+        return token
+
+    async def rotate_refresh_token(self, token: str) -> tuple[UserInDB, str]:
+        """Exchange a refresh token for a fresh access token and a new
+        refresh token.
+
+        Rotation is single-use. Presenting an already-used token means it
+        exists in two places, so every session for that account is
+        revoked rather than trying to guess which holder is genuine.
+        """
+        if self._refresh is None:  # pragma: no cover - wiring guard
+            raise RuntimeError("Refresh token repository is not configured.")
+
+        token_hash = hash_refresh_token(token)
+        record = await self._refresh.find(token_hash)
+        if record is None:
+            raise self.invalid_session()
+
+        if record.get("used_at") is not None:
+            logger.warning(
+                "Refresh token replayed for user %s; revoking all sessions",
+                record["user_id"],
+            )
+            await self._refresh.revoke_all_for_user(record["user_id"])
+            raise self.invalid_session()
+
+        # Atomic: two concurrent refreshes cannot both win, so a genuine
+        # double-submit does not look like theft.
+        if not await self._refresh.mark_used(token_hash):
+            raise self.invalid_session()
+
+        user = await self._users.get_by_id(record["user_id"])
+        if user is None:
+            # Account deleted while a session was still live.
+            await self._refresh.revoke_all_for_user(record["user_id"])
+            raise self.invalid_session()
+
+        # The spent token is deliberately kept, marked used, rather than
+        # deleted. Deleting it would make a replay indistinguishable from
+        # an unknown token, and reuse detection depends on telling those
+        # apart. The TTL index removes it once it expires anyway.
+        return user, await self.issue_refresh_token(user)
+
+    async def revoke_refresh_token(self, token: str | None) -> None:
+        """Sign out. Absent or unknown tokens are ignored — logout should
+        never fail."""
+        if self._refresh is None or not token:
+            return
+        await self._refresh.revoke(hash_refresh_token(token))

@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -27,3 +29,32 @@ def decode_access_token(token: str) -> str | None:
         return payload.get("sub")
     except JWTError:
         return None
+
+
+# --- refresh tokens ------------------------------------------------------
+
+
+def new_refresh_token() -> str:
+    """A high-entropy opaque token.
+
+    Deliberately not a JWT: a self-describing token is valid until it
+    expires no matter what the server thinks, so it cannot be revoked.
+    Revocation — on logout, and on detecting a stolen token — is the
+    whole reason this exists.
+    """
+    return secrets.token_urlsafe(48)
+
+
+def hash_refresh_token(token: str) -> str:
+    """Hash for storage.
+
+    Stored hashed for the same reason passwords are: a leaked database
+    dump should not hand over live sessions. Plain SHA-256 rather than
+    bcrypt is correct here — the input is 48 bytes of CSPRNG output, so
+    there is no dictionary to attack and no need to be slow.
+    """
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def refresh_token_expiry() -> datetime:
+    return datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)

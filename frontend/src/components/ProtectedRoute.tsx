@@ -17,14 +17,17 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, status } = useAuth();
+  const { isAuthenticated, isRestoring, status } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isAuthenticated && status !== "authenticating") {
-      router.replace("/auth/login");
-    }
-  }, [isAuthenticated, status, router]);
+    // Waiting on `isRestoring` is the whole point: on a reload there is
+    // no access token yet, but the refresh cookie may still be valid.
+    // Redirecting before that resolves would bounce a signed-in user to
+    // the login page every time they refresh the page.
+    if (isRestoring || status === "authenticating") return;
+    if (!isAuthenticated) router.replace("/auth/login");
+  }, [isAuthenticated, isRestoring, status, router]);
 
   if (!isAuthenticated) {
     return (
@@ -38,7 +41,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
           fontSize: "15px",
         }}
       >
-        Redirecting to sign in…
+        {isRestoring ? "Restoring your session…" : "Redirecting to sign in…"}
       </div>
     );
   }
