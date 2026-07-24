@@ -36,6 +36,33 @@ class FakeUserRepository:
                 update={"providers": [*user.providers, provider]}
             )
 
+    async def update_profile(
+        self, user_id: str, *, full_name: str | None, storage_quota_bytes: int | None
+    ) -> UserInDB | None:
+        user = self._by_id.get(user_id)
+        if user is None:
+            return None
+        changes = {}
+        if full_name is not None:
+            changes["full_name"] = full_name
+        if storage_quota_bytes is not None:
+            changes["storage_quota_bytes"] = storage_quota_bytes
+        updated = user.model_copy(update=changes)
+        self._by_id[user_id] = updated
+        return updated
+
+    async def update_password(self, user_id: str, hashed_password: str) -> None:
+        user = self._by_id.get(user_id)
+        if user is None:
+            return
+        self._by_id[user_id] = user.model_copy(
+            update={
+                "hashed_password": hashed_password,
+                "providers": user.providers if "password" in user.providers
+                else [*user.providers, "password"],
+            }
+        )
+
     def _insert(self, email, full_name, hashed_password, providers) -> UserInDB:
         user_id = str(self._next_id)
         self._next_id += 1
@@ -112,6 +139,18 @@ class FakeItemRepository:
         ]
         imgs.sort(key=lambda i: i.taken_at or i.created_at, reverse=True)
         return imgs[offset : offset + limit], len(imgs)
+
+    async def list_videos(
+        self, user_id: str, *, offset: int = 0, limit: int = 100
+    ) -> tuple[list[Item], int]:
+        vids = [
+            i for i in self._mine(user_id)
+            if i.type is ItemType.FILE
+            and i.status is UploadStatus.READY
+            and (i.content_type or "").startswith("video/")
+        ]
+        vids.sort(key=lambda i: i.taken_at or i.created_at, reverse=True)
+        return vids[offset : offset + limit], len(vids)
 
     async def search(
         self, user_id: str, term: str, *, offset: int = 0, limit: int = 100

@@ -61,3 +61,11 @@ export function formatMonthHeading(iso: string): string {
 export function isImage(contentType: string | null): boolean {
   return Boolean(contentType?.startsWith("image/"));
 }
+
+export function isVideo(contentType: string | null): boolean {
+  return Boolean(contentType?.startsWith("video/"));
+}
+
+export function isAudio(contentType: string | null): boolean {
+  return Boolean(contentType?.startsWith("audio/"));
+}

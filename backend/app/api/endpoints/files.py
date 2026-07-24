@@ -80,6 +80,21 @@ async def list_photos(
     return _page(items, total, offset, limit)
 
 
+@router.get("/videos", response_model=PageResponse)
+async def list_videos(
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=500),
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> PageResponse:
+    """Every video the user owns, newest first, across all folders.
+
+    Mirrors /photos: organised by time rather than by folder.
+    """
+    items, total = await files.list_videos(user.id, offset=offset, limit=limit)
+    return _page(items, total, offset, limit)
+
+
 @router.get("/search", response_model=PageResponse)
 async def search_items(
     q: str = Query(min_length=1, max_length=200),

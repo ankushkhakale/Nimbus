@@ -123,6 +123,13 @@ class FileService:
             user_id, offset=max(0, offset), limit=self._clamp(limit)
         )
 
+    async def list_videos(
+        self, user_id: str, *, offset: int, limit: int
+    ) -> tuple[list[Item], int]:
+        return await self._items.list_videos(
+            user_id, offset=max(0, offset), limit=self._clamp(limit)
+        )
+
     async def search(
         self, user_id: str, term: str, *, offset: int, limit: int
     ) -> tuple[list[Item], int]:

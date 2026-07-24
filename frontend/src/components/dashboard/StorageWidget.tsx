@@ -1,17 +1,11 @@
 "use client";
 
-import React from "react";
+import Link from "next/link";
+import { Settings as SettingsIcon } from "lucide-react";
 
 import { UsageDetail } from "@/lib/api";
-import { estimatedMonthlyCostInr, formatBytes, formatInr } from "@/lib/format";
-
-/**
- * S3 has no quota, so there is no honest denominator for a progress bar.
- * The bar is drawn against the ~90GB the project's cost model is built
- * around (requirements.md §3) and labelled as a budget reference, not a
- * storage limit — exceeding it costs more, it does not stop working.
- */
-const BUDGET_REFERENCE_BYTES = 90 * 1024 ** 3;
+import { useAuth } from "@/lib/auth-context";
+import { formatBytes } from "@/lib/format";
 
 const CATEGORY_LABELS: Record<string, string> = {
   images: "Photos",
@@ -22,9 +16,14 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export function StorageWidget({ usage }: { usage: UsageDetail | null }) {
+  const { user } = useAuth();
   const stored = usage?.bytes_stored ?? 0;
-  const pct = Math.min(100, (stored / BUDGET_REFERENCE_BYTES) * 100);
-  const cost = estimatedMonthlyCostInr(stored + (usage?.trashed_bytes ?? 0));
+  // The denominator is the user's own display preference (Settings ->
+  // Storage), not a real cap — S3 bills by actual usage regardless of
+  // this number. Falls back to the server-side default until the
+  // profile has loaded.
+  const quota = user?.storage_quota_bytes ?? 100 * 1024 ** 3;
+  const pct = Math.min(100, (stored / quota) * 100);
 
   const top = (usage?.by_category ?? []).filter((c) => c.bytes_stored > 0).slice(0, 3);
 
@@ -33,7 +32,16 @@ export function StorageWidget({ usage }: { usage: UsageDetail | null }) {
       className="card"
       style={{ padding: 16, marginTop: "auto", background: "var(--surface-elevated)" }}
     >
-      <h3 style={{ fontSize: 13, marginBottom: 10, color: "var(--text-high)" }}>Storage</h3>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <h3 style={{ fontSize: 13, color: "var(--text-high)" }}>Storage</h3>
+        <Link
+          href="/dashboard/settings"
+          aria-label="Storage settings"
+          style={{ color: "var(--text-low)", display: "flex" }}
+        >
+          <SettingsIcon size={14} />
+        </Link>
+      </div>
 
       <div
         style={{
@@ -45,7 +53,7 @@ export function StorageWidget({ usage }: { usage: UsageDetail | null }) {
       >
         <div
           style={{
-            background: "var(--primary)",
+            background: pct >= 95 ? "var(--error)" : "var(--primary)",
             width: `${Math.max(pct, stored > 0 ? 2 : 0)}%`,
             height: "100%",
             transition: "width 300ms ease",
@@ -56,8 +64,7 @@ export function StorageWidget({ usage }: { usage: UsageDetail | null }) {
       <p style={{ fontSize: 12, marginTop: 8, color: "var(--text-body)" }}>
         {usage ? (
           <>
-            {formatBytes(stored)} · {usage.file_count}{" "}
-            {usage.file_count === 1 ? "file" : "files"}
+            {formatBytes(stored)} of {formatBytes(quota)} used
           </>
         ) : (
           "Loading…"
@@ -82,18 +89,6 @@ export function StorageWidget({ usage }: { usage: UsageDetail | null }) {
           ))}
         </ul>
       )}
-
-      {/* Trash still occupies the bucket until the purge runs, so it is
-          surfaced rather than quietly excluded from the total. */}
-      {usage && usage.trashed_count > 0 && (
-        <p style={{ fontSize: 11.5, marginTop: 8, color: "var(--text-low)" }}>
-          Trash holds {formatBytes(usage.trashed_bytes)} until it is purged.
-        </p>
-      )}
-
-      <p style={{ fontSize: 11, marginTop: 8, color: "var(--text-low)" }}>
-        ≈ {formatInr(cost)}/month in S3
-      </p>
     </div>
   );
 }

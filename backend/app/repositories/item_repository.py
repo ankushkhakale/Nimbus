@@ -130,6 +130,30 @@ class ItemRepository:
         total = await self._collection.count_documents(query)
         return items, total
 
+    async def list_videos(
+        self, user_id: str, *, offset: int = 0, limit: int = DEFAULT_PAGE_SIZE
+    ) -> tuple[list[Item], int]:
+        """Every video the user owns, newest first, regardless of folder.
+
+        Mirrors list_images: a video library is organised by time, not by
+        where the file happens to sit.
+        """
+        query = self._live(
+            user_id,
+            type=ItemType.FILE.value,
+            status=UploadStatus.READY.value,
+            content_type={"$regex": "^video/"},
+        )
+        cursor = (
+            self._collection.find(query)
+            .sort([("taken_at", -1), ("created_at", -1)])
+            .skip(offset)
+            .limit(limit)
+        )
+        items = [_doc_to_item(d) async for d in cursor]
+        total = await self._collection.count_documents(query)
+        return items, total
+
     async def search(
         self, user_id: str, term: str, *, offset: int = 0, limit: int = DEFAULT_PAGE_SIZE
     ) -> tuple[list[Item], int]:

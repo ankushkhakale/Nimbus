@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.models.user import UserInDB
+from app.models.user import DEFAULT_STORAGE_QUOTA_BYTES, UserInDB
 
 COLLECTION = "users"
 
@@ -17,6 +17,7 @@ def _doc_to_user(doc: dict) -> UserInDB:
         # accounts keep working without a migration.
         hashed_password=doc.get("hashed_password"),
         providers=doc.get("providers", ["password"]),
+        storage_quota_bytes=doc.get("storage_quota_bytes", DEFAULT_STORAGE_QUOTA_BYTES),
         created_at=doc["created_at"],
     )
 
@@ -42,6 +43,7 @@ class UserRepository:
             "full_name": full_name,
             "hashed_password": hashed_password,
             "providers": ["password"],
+            "storage_quota_bytes": DEFAULT_STORAGE_QUOTA_BYTES,
             "created_at": now,
         }
         result = await self._collection.insert_one(doc)
@@ -57,6 +59,7 @@ class UserRepository:
             "full_name": full_name,
             "hashed_password": None,
             "providers": [provider],
+            "storage_quota_bytes": DEFAULT_STORAGE_QUOTA_BYTES,
             "created_at": now,
         }
         result = await self._collection.insert_one(doc)
@@ -70,6 +73,33 @@ class UserRepository:
         await self._collection.update_one(
             {"_id": ObjectId(user_id)},
             {"$addToSet": {"providers": provider}},
+        )
+
+    async def update_profile(
+        self, user_id: str, *, full_name: str | None, storage_quota_bytes: int | None
+    ) -> UserInDB | None:
+        updates: dict = {}
+        if full_name is not None:
+            updates["full_name"] = full_name
+        if storage_quota_bytes is not None:
+            updates["storage_quota_bytes"] = storage_quota_bytes
+        if not updates:
+            return await self.get_by_id(user_id)
+        doc = await self._collection.find_one_and_update(
+            {"_id": ObjectId(user_id)}, {"$set": updates}, return_document=True
+        )
+        return _doc_to_user(doc) if doc else None
+
+    async def update_password(self, user_id: str, hashed_password: str) -> None:
+        # $addToSet here too: an OAuth-only account setting its first
+        # password now also signs in with one, so "password" belongs in
+        # providers alongside whatever got them here originally.
+        await self._collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {
+                "$set": {"hashed_password": hashed_password},
+                "$addToSet": {"providers": "password"},
+            },
         )
 
     async def ensure_indexes(self) -> None:

@@ -20,7 +20,7 @@ import {
 } from "./api";
 import { useAuth } from "./auth-context";
 
-export type View = "files" | "photos" | "recent" | "trash";
+export type View = "files" | "photos" | "videos" | "recent" | "trash";
 
 export interface Crumb {
   id: string | null;
@@ -77,6 +77,8 @@ export function useFiles() {
       switch (view) {
         case "photos":
           return filesApi.photos(token, opts);
+        case "videos":
+          return filesApi.videos(token, opts);
         case "trash":
           return filesApi.trash(token, opts);
         case "recent": {

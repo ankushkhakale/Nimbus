@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { LogOut, Settings } from "lucide-react";
 
 import { useAuth } from "@/lib/auth-context";
 
@@ -76,6 +77,30 @@ export function UserMenu() {
               {user.email}
             </div>
           </div>
+          <Link
+            href="/dashboard/settings"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              width: "100%",
+              marginTop: "4px",
+              padding: "10px 12px",
+              borderRadius: "8px",
+              background: "transparent",
+              border: "none",
+              color: "inherit",
+              font: "inherit",
+              fontSize: "14px",
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+          >
+            <Settings size={16} />
+            Settings
+          </Link>
           <button
             type="button"
             role="menuitem"

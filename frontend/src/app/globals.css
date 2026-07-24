@@ -551,6 +551,13 @@ code, pre, .mono {
   .photo-grid {
     grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)) !important;
   }
+  /* The auth header's balance spacer only exists to keep the logo
+     centred against the "Back to home" text; once that text collapses
+     to an icon (.btn-label above) the spacer's fixed width is no longer
+     balancing anything real. */
+  .auth-header-spacer {
+    display: none;
+  }
 }
 
 /* Coarse pointer (touch): enlarge the small icon buttons in file rows and

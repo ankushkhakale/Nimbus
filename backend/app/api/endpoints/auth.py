@@ -9,11 +9,13 @@ from app.core.config import settings
 from app.models.user import UserInDB
 from app.schemas.auth import (
     AuthConfigResponse,
+    ChangePasswordRequest,
     ForgotPasswordRequest,
     LoginRequest,
     OAuthCallbackRequest,
     RegisterRequest,
     TokenResponse,
+    UpdateProfileRequest,
     UserPublic,
 )
 from app.services import oauth_service
@@ -24,7 +26,14 @@ logger = logging.getLogger(__name__)
 
 
 def _to_public(user: UserInDB) -> UserPublic:
-    return UserPublic(id=user.id, email=user.email, full_name=user.full_name)
+    return UserPublic(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        providers=user.providers,
+        has_password=user.has_password,
+        storage_quota_bytes=user.storage_quota_bytes,
+    )
 
 
 def _set_refresh_cookie(response: Response, token: str) -> None:
@@ -191,6 +200,32 @@ async def logout(
 @router.get("/me", response_model=UserPublic)
 async def read_current_user(current_user: UserInDB = Depends(get_current_user)) -> UserPublic:
     return _to_public(current_user)
+
+
+@router.patch("/me", response_model=UserPublic)
+async def update_profile(
+    payload: UpdateProfileRequest,
+    current_user: UserInDB = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service),
+) -> UserPublic:
+    updated = await auth_service.update_profile(
+        current_user.id,
+        full_name=payload.full_name,
+        storage_quota_bytes=payload.storage_quota_bytes,
+    )
+    return _to_public(updated)
+
+
+@router.post("/me/change-password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    payload: ChangePasswordRequest,
+    current_user: UserInDB = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service),
+) -> Response:
+    await auth_service.change_password(
+        current_user, payload.current_password, payload.new_password
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
