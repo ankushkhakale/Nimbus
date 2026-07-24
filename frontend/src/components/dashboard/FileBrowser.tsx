@@ -26,6 +26,7 @@ import { Item, SortKey } from "@/lib/api";
 import { formatBytes, formatRelativeDate } from "@/lib/format";
 import { View, useFiles } from "@/lib/use-files";
 import { FormError } from "@/components/FormError";
+import { UserMenu } from "@/components/UserMenu";
 import { ConfirmModal, PromptModal } from "@/components/ui/Modal";
 import { Lightbox } from "./Lightbox";
 import { MoveDialog } from "./MoveDialog";
@@ -616,7 +617,7 @@ function Toolbar({
             value={browser.sort}
             onChange={(e) => browser.setSort(e.target.value as SortKey)}
             aria-label="Sort by"
-            className="form-input"
+            className="form-input toolbar-sort"
             style={{ height: 40, width: "auto", fontSize: 14, cursor: "pointer" }}
           >
             {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
@@ -629,14 +630,32 @@ function Toolbar({
 
         {!readOnly && (
           <>
-            <button type="button" onClick={onNewFolder} className="btn-secondary">
-              <FolderPlus size={16} /> New folder
+            {/* Label text collapses to icon-only on narrow screens (see
+                .btn-label in globals.css) so the toolbar fits a phone. */}
+            <button
+              type="button"
+              onClick={onNewFolder}
+              className="btn-secondary"
+              aria-label="New folder"
+              style={{ padding: "0 12px" }}
+            >
+              <FolderPlus size={16} />
+              <span className="btn-label">New folder</span>
             </button>
-            <button type="button" onClick={onUploadClick} className="btn-primary">
-              <Upload size={16} /> Upload
+            <button
+              type="button"
+              onClick={onUploadClick}
+              className="btn-primary"
+              aria-label="Upload"
+              style={{ padding: "0 14px" }}
+            >
+              <Upload size={16} />
+              <span className="btn-label">Upload</span>
             </button>
           </>
         )}
+
+        <UserMenu />
       </div>
     </header>
   );
@@ -1006,6 +1025,7 @@ function IconButton({
       type="button"
       title={title}
       aria-label={title}
+      className="icon-btn"
       onClick={(e) => {
         e.stopPropagation();
         onClick();

@@ -126,9 +126,16 @@ export function Lightbox({
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 10 }}>
-          <button type="button" className="btn-secondary" onClick={() => onDownload(item)}>
-            <Download size={16} /> Download
+        <div style={{ display: "flex", gap: 10, flexShrink: 0 }}>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => onDownload(item)}
+            aria-label="Download"
+            style={{ padding: "0 12px" }}
+          >
+            <Download size={16} />
+            <span className="btn-label">Download</span>
           </button>
           <button
             type="button"

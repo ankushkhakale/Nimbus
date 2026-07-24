@@ -517,6 +517,8 @@ code, pre, .mono {
     z-index: 100;
     transform: translateX(-100%);
     transition: transform 0.2s ease;
+    /* A touch drawer wants to be a touch wider than the desktop rail. */
+    width: min(84vw, 300px) !important;
   }
 
   .dashboard-sidebar.is-open {
@@ -531,6 +533,32 @@ code, pre, .mono {
      width; name and actions matter more. */
   .row-meta {
     display: none;
+  }
+}
+
+/* Icon-only toolbar buttons once there isn't room for their labels. The
+   button keeps its aria-label, so it stays accessible without the text. */
+@media (max-width: 620px) {
+  .btn-label {
+    display: none;
+  }
+  /* The sort dropdown is the least-used control; drop it before the
+     action buttons when width is tight. */
+  .toolbar-sort {
+    display: none;
+  }
+  /* Photo tiles: three-up on a phone reads better than two big ones. */
+  .photo-grid {
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)) !important;
+  }
+}
+
+/* Coarse pointer (touch): enlarge the small icon buttons in file rows and
+   folder cards to a comfortable tap target. */
+@media (pointer: coarse) {
+  .icon-btn {
+    width: 40px;
+    height: 40px;
   }
 }
 
