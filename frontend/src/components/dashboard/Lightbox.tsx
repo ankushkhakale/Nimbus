@@ -4,17 +4,17 @@
  * Full-screen viewer for a file, with arrow-key paging through the
  * surrounding list.
  *
- * Images and PDFs render inline from a preview URL (no attachment
- * disposition). Anything else gets a download prompt rather than a
- * broken embed — the browser would otherwise either download it anyway
- * or show a blank frame.
+ * Images, PDFs, video and audio render inline from a preview URL (no
+ * attachment disposition). Anything else gets a download prompt rather
+ * than a broken embed — the browser would otherwise either download it
+ * anyway or show a blank frame.
  */
 
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Download, FileText, X } from "lucide-react";
 
 import { Item, files as filesApi } from "@/lib/api";
-import { formatBytes, formatRelativeDate, isImage } from "@/lib/format";
+import { formatBytes, formatRelativeDate, isAudio, isImage, isVideo } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
 
 function isPdf(item: Item): boolean {
@@ -82,7 +82,11 @@ export function Lightbox({
 
   if (!item) return null;
 
-  const renderable = isImage(item.content_type) || isPdf(item);
+  const renderable =
+    isImage(item.content_type) ||
+    isPdf(item) ||
+    isVideo(item.content_type) ||
+    isAudio(item.content_type);
 
   return (
     <div
@@ -186,6 +190,22 @@ export function Lightbox({
             src={url}
             title={item.name}
             style={{ width: "100%", height: "100%", border: "none", borderRadius: 8 }}
+          />
+        ) : isVideo(item.content_type) ? (
+          <video
+            src={url}
+            controls
+            autoPlay
+            onError={() => setPreview({ id: item.id, url: null })}
+            style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 8 }}
+          />
+        ) : isAudio(item.content_type) ? (
+          <audio
+            src={url}
+            controls
+            autoPlay
+            onError={() => setPreview({ id: item.id, url: null })}
+            style={{ width: "100%", maxWidth: 480 }}
           />
         ) : (
           // eslint-disable-next-line @next/next/no-img-element

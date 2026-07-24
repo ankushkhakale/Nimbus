@@ -65,8 +65,16 @@ async function request<T>(
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
-    // fetch only rejects on network-level failure, never on 4xx/5xx.
-    throw new ApiError(0, "Could not reach the server. Check your connection.");
+    // fetch only rejects on network-level failure, never on 4xx/5xx. This
+    // covers several distinct causes (DNS, TLS, CORS, an actually-dead
+    // connection) that all look identical to JavaScript, so the message
+    // only claims what navigator.onLine can actually confirm.
+    throw new ApiError(
+      0,
+      navigator.onLine
+        ? "Could not reach the server. It may be temporarily down, or a network in between is blocking the request."
+        : "You appear to be offline. Check your connection and try again."
+    );
   }
 
   if (response.status === 204) return undefined as T;
@@ -86,6 +94,10 @@ export interface User {
   id: string;
   email: string;
   full_name: string;
+  providers: string[];
+  has_password: boolean;
+  /** Display-only denominator for the storage widget. Not enforced. */
+  storage_quota_bytes: number;
 }
 
 export interface TokenResponse {
@@ -199,6 +211,18 @@ export const auth = {
 
   me: (token: string) => request<User>("/auth/me", { token }),
 
+  updateProfile: (
+    token: string,
+    changes: { full_name?: string; storage_quota_bytes?: number }
+  ) => request<User>("/auth/me", { method: "PATCH", body: changes, token }),
+
+  changePassword: (token: string, current_password: string | null, new_password: string) =>
+    request<void>("/auth/me/change-password", {
+      method: "POST",
+      body: { current_password, new_password },
+      token,
+    }),
+
   forgotPassword: (email: string) =>
     request<{ message: string }>("/auth/forgot-password", { method: "POST", body: { email } }),
 };
@@ -234,6 +258,12 @@ export const files = {
   /** Every image the user owns, newest first, regardless of folder. */
   photos: (token: string, opts: { offset?: number; limit?: number } = {}) =>
     request<Page<Item>>(`/files/photos${qs({ offset: opts.offset, limit: opts.limit })}`, {
+      token,
+    }),
+
+  /** Every video the user owns, newest first, regardless of folder. */
+  videos: (token: string, opts: { offset?: number; limit?: number } = {}) =>
+    request<Page<Item>>(`/files/videos${qs({ offset: opts.offset, limit: opts.limit })}`, {
       token,
     }),
 
@@ -368,7 +398,15 @@ export function uploadToS3(
         ? resolve()
         : reject(new ApiError(xhr.status, `Upload failed (${xhr.status}).`));
 
-    xhr.onerror = () => reject(new ApiError(0, "Upload failed — check your connection."));
+    xhr.onerror = () =>
+      reject(
+        new ApiError(
+          0,
+          navigator.onLine
+            ? "Upload failed partway through — the connection to S3 was interrupted. Try again."
+            : "Upload failed — you appear to be offline."
+        )
+      );
     xhr.onabort = () => reject(new ApiError(0, "Upload cancelled."));
 
     xhr.send(file);

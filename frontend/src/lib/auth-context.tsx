@@ -40,6 +40,8 @@ interface AuthContextValue {
   /** Finish an OAuth sign-in from the provider's code. */
   completeOAuth: (provider: string, code: string, redirectUri: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Overwrite the cached profile after Settings changes it server-side. */
+  setUser: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -145,6 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       register,
       completeOAuth,
       logout,
+      setUser,
     }),
     [user, token, status, login, register, completeOAuth, logout]
   );
