@@ -28,6 +28,7 @@ import { View, useFiles } from "@/lib/use-files";
 import { FormError } from "@/components/FormError";
 import { UserMenu } from "@/components/UserMenu";
 import { ConfirmModal, PromptModal } from "@/components/ui/Modal";
+import { OverflowMenu } from "@/components/ui/OverflowMenu";
 import { Lightbox } from "./Lightbox";
 import { MoveDialog } from "./MoveDialog";
 import { PhotoGrid } from "./PhotoGrid";
@@ -45,6 +46,7 @@ const SORT_LABELS: Record<SortKey, string> = {
 const NAV: { key: View; label: string; icon: React.ReactNode }[] = [
   { key: "files", label: "My Cloud", icon: <FolderIcon size={16} /> },
   { key: "photos", label: "Photos", icon: <ImageIcon size={16} /> },
+  { key: "videos", label: "Videos", icon: <Video size={16} /> },
   { key: "recent", label: "Recent", icon: <Clock size={16} /> },
   { key: "trash", label: "Trash", icon: <Trash2 size={16} /> },
 ];
@@ -213,10 +215,12 @@ export function FileBrowser() {
             <UploadList uploads={uploads} onDismiss={b.dismissUpload} />
           )}
 
-          {selected.size > 0 && (
+          {!loading && items.length > 0 && (
             <SelectionBar
               count={selected.size}
+              total={items.length}
               view={view}
+              onSelectAll={b.selectAll}
               onClear={b.clearSelection}
               onMove={() => setDialog({ kind: "move", items: b.selectedItems })}
               onTrash={() => setDialog({ kind: "trash", items: b.selectedItems })}
@@ -513,7 +517,7 @@ function Sidebar({
                   border: "none",
                   borderLeft: `3px solid ${active ? "var(--primary)" : "transparent"}`,
                   cursor: "pointer",
-                  font: "inherit",
+                  fontFamily: "inherit",
                   fontSize: 14,
                   textAlign: "left",
                 }}
@@ -699,7 +703,9 @@ function Breadcrumbs({ browser }: { browser: ReturnType<typeof useFiles> }) {
 
 function SelectionBar({
   count,
+  total,
   view,
+  onSelectAll,
   onClear,
   onMove,
   onTrash,
@@ -707,13 +713,23 @@ function SelectionBar({
   onDeleteForever,
 }: {
   count: number;
+  total: number;
   view: View;
+  onSelectAll: () => void;
   onClear: () => void;
   onMove: () => void;
   onTrash: () => void;
   onRestore: () => void;
   onDeleteForever: () => void;
 }) {
+  const allSelected = count > 0 && count >= total;
+  const checkboxRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    // Indeterminate has no JSX prop; some selected but not all shows a
+    // dash rather than falsely claiming "none" or "all" are picked.
+    if (checkboxRef.current) checkboxRef.current.indeterminate = count > 0 && !allSelected;
+  }, [count, allSelected]);
+
   return (
     <div
       className="card"
@@ -726,35 +742,58 @@ function SelectionBar({
         flexWrap: "wrap",
       }}
     >
-      <strong style={{ fontSize: 14, color: "var(--text-high)" }}>{count} selected</strong>
+      <label
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          cursor: "pointer",
+          fontSize: 14,
+          color: "var(--text-high)",
+        }}
+      >
+        <input
+          ref={checkboxRef}
+          type="checkbox"
+          checked={allSelected}
+          onChange={() => (count > 0 ? onClear() : onSelectAll())}
+          aria-label={allSelected ? "Deselect all" : "Select all"}
+          style={{ accentColor: "var(--primary)", cursor: "pointer" }}
+        />
+        <strong>{count > 0 ? `${count} selected` : "Select all"}</strong>
+      </label>
       <div style={{ flex: 1 }} />
-      {view === "trash" ? (
+      {count > 0 && (
         <>
-          <button type="button" className="btn-secondary" onClick={onRestore}>
-            <RotateCcw size={15} /> Restore
-          </button>
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={onDeleteForever}
-            style={{ color: "var(--error)" }}
-          >
-            <Trash2 size={15} /> Delete forever
-          </button>
-        </>
-      ) : (
-        <>
-          <button type="button" className="btn-secondary" onClick={onMove}>
-            Move to…
-          </button>
-          <button type="button" className="btn-secondary" onClick={onTrash}>
-            <Trash2 size={15} /> Trash
+          {view === "trash" ? (
+            <>
+              <button type="button" className="btn-secondary" onClick={onRestore}>
+                <RotateCcw size={15} /> Restore
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={onDeleteForever}
+                style={{ color: "var(--error)" }}
+              >
+                <Trash2 size={15} /> Delete forever
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" className="btn-secondary" onClick={onMove}>
+                Move to…
+              </button>
+              <button type="button" className="btn-secondary" onClick={onTrash}>
+                <Trash2 size={15} /> Trash
+              </button>
+            </>
+          )}
+          <button type="button" className="btn-secondary" onClick={onClear} aria-label="Clear selection">
+            <X size={15} />
           </button>
         </>
       )}
-      <button type="button" className="btn-secondary" onClick={onClear} aria-label="Clear selection">
-        <X size={15} />
-      </button>
     </div>
   );
 }
@@ -847,60 +886,65 @@ function FolderCard({
       onDoubleClick={onOpen}
       onClick={(e) => (e.metaKey || e.ctrlKey) && onToggleSelect(item.id)}
       style={{
-        padding: 16,
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "10px 14px",
         cursor: "pointer",
         outline: isSelected ? "2px solid var(--primary)" : "none",
         outlineOffset: -1,
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <input
-          type="checkbox"
-          checked={isSelected}
-          onChange={() => onToggleSelect(item.id)}
-          onClick={(e) => e.stopPropagation()}
-          aria-label={`Select ${item.name}`}
-          style={{ accentColor: "var(--primary)", cursor: "pointer" }}
-        />
-        {!readOnly && (
-          <div style={{ display: "flex", gap: 2 }}>
-            <IconButton title="Rename" onClick={onRename}>
-              <Pencil size={14} />
-            </IconButton>
-            <IconButton title="Move to Trash" onClick={onTrash}>
-              <Trash2 size={14} />
-            </IconButton>
-          </div>
-        )}
-      </div>
+      <input
+        type="checkbox"
+        checked={isSelected}
+        onChange={() => onToggleSelect(item.id)}
+        onClick={(e) => e.stopPropagation()}
+        aria-label={`Select ${item.name}`}
+        style={{ accentColor: "var(--primary)", cursor: "pointer", flexShrink: 0 }}
+      />
+      <FolderIcon size={18} color="var(--primary)" style={{ flexShrink: 0 }} />
 
       <button
         type="button"
         onClick={onOpen}
         style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          marginTop: 12,
+          flex: 2,
+          minWidth: 0,
           background: "transparent",
           border: "none",
           padding: 0,
           color: "var(--text-high)",
-          fontSize: 15,
           fontWeight: 600,
-          cursor: "pointer",
+          fontSize: 15,
           textAlign: "left",
+          cursor: "pointer",
           font: "inherit",
-          width: "100%",
-          wordBreak: "break-word",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
         }}
       >
-        <FolderIcon size={20} color="var(--primary)" />
         {item.name}
       </button>
-      <p style={{ fontSize: 12, color: "var(--text-med)", marginTop: 6 }}>
+
+      <span className="row-meta" style={{ flex: 1, color: "var(--text-med)", fontSize: 13 }}>
         {formatRelativeDate(item.updated_at)}
-      </p>
+      </span>
+
+      {!readOnly && (
+        <OverflowMenu
+          actions={[
+            { label: "Rename", icon: <Pencil size={15} />, onClick: onRename },
+            {
+              label: "Move to Trash",
+              icon: <Trash2 size={15} />,
+              onClick: onTrash,
+              destructive: true,
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }
@@ -982,7 +1026,7 @@ function FileRow({
         {formatBytes(item.size)}
       </span>
 
-      <div style={{ display: "flex", gap: 2 }}>
+      <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
         {readOnly ? (
           <IconButton title="Restore" onClick={onRestore}>
             <RotateCcw size={15} />
@@ -996,12 +1040,17 @@ function FileRow({
             >
               <Download size={15} />
             </IconButton>
-            <IconButton title="Rename" onClick={onRename}>
-              <Pencil size={15} />
-            </IconButton>
-            <IconButton title="Move to Trash" onClick={onTrash}>
-              <Trash2 size={15} />
-            </IconButton>
+            <OverflowMenu
+              actions={[
+                { label: "Rename", icon: <Pencil size={15} />, onClick: onRename },
+                {
+                  label: "Move to Trash",
+                  icon: <Trash2 size={15} />,
+                  onClick: onTrash,
+                  destructive: true,
+                },
+              ]}
+            />
           </>
         )}
       </div>
@@ -1057,6 +1106,8 @@ function EmptyState({ view, query }: { view: View; query: string }) {
     ? ["Trash is empty", "Deleted items appear here and stay for 30 days."]
     : view === "photos"
     ? ["No photos yet", "Upload images and they'll be grouped by date taken."]
+    : view === "videos"
+    ? ["No videos yet", "Upload videos and they'll show up here, newest first."]
     : view === "recent"
     ? ["Nothing recent", "Files you upload or change will show up here."]
     : ["This folder is empty", "Drag files anywhere here, or use the Upload button."];
