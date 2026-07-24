@@ -56,12 +56,33 @@ class AuthService:
 
     async def authenticate(self, email: str, password: str) -> UserInDB:
         user = await self._users.get_by_email(email)
-        if not user or not verify_password(password, user.hashed_password):
+        # `user.hashed_password` is None for OAuth-only accounts;
+        # verify_password against None must fail rather than raise, and
+        # the message stays generic so it never reveals that an address
+        # exists but has no password.
+        if not user or not user.hashed_password or not verify_password(
+            password, user.hashed_password
+        ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect email or password.",
             )
         return user
+
+    async def sign_in_with_oauth(self, email: str, full_name: str, provider: str) -> UserInDB:
+        """Find or create an account for a provider-verified email.
+
+        Link-by-email: the same address is the same account however the
+        person signs in. A new provider on an existing account is
+        recorded so the UI can show it. The email is already verified by
+        the provider before this is called.
+        """
+        existing = await self._users.get_by_email(email)
+        if existing is None:
+            return await self._users.create_oauth_user(email, full_name, provider)
+        if provider not in existing.providers:
+            await self._users.add_provider(existing.id, provider)
+        return existing
 
     # --- tokens --------------------------------------------------------
 

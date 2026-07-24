@@ -16,6 +16,23 @@ Parameters:
   CorsOrigins:
     Type: String
     Default: http://localhost:3000
+  # OAuth. Empty defaults leave a provider disabled — the app runs on
+  # password auth alone until these are supplied. Secrets are NoEcho so
+  # they never appear in stack events or the console.
+  GoogleClientId:
+    Type: String
+    Default: ""
+  GoogleClientSecret:
+    Type: String
+    NoEcho: true
+    Default: ""
+  GithubClientId:
+    Type: String
+    Default: ""
+  GithubClientSecret:
+    Type: String
+    NoEcho: true
+    Default: ""
   CodeS3Bucket:
     Type: String
     Description: Bucket holding the deployment zip.
@@ -65,6 +82,10 @@ Resources:
           S3_REGION: !Ref AWS::Region
           PRESIGNED_URL_EXPIRE_SECONDS: "3600"
           CORS_ORIGINS: !Ref CorsOrigins
+          GOOGLE_CLIENT_ID: !Ref GoogleClientId
+          GOOGLE_CLIENT_SECRET: !Ref GoogleClientSecret
+          GITHUB_CLIENT_ID: !Ref GithubClientId
+          GITHUB_CLIENT_SECRET: !Ref GithubClientSecret
 
   # Daily sweep that removes trashed items past their retention window.
   # Until it runs, deleted files still occupy the bucket, so this is a

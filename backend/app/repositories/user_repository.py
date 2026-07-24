@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -11,7 +13,10 @@ def _doc_to_user(doc: dict) -> UserInDB:
         id=str(doc["_id"]),
         email=doc["email"],
         full_name=doc["full_name"],
-        hashed_password=doc["hashed_password"],
+        # Older documents predate these fields; default them so existing
+        # accounts keep working without a migration.
+        hashed_password=doc.get("hashed_password"),
+        providers=doc.get("providers", ["password"]),
         created_at=doc["created_at"],
     )
 
@@ -31,23 +36,40 @@ class UserRepository:
         return _doc_to_user(doc) if doc else None
 
     async def create(self, email: str, full_name: str, hashed_password: str) -> UserInDB:
-        from datetime import datetime, timezone
-
         now = datetime.now(timezone.utc)
-        result = await self._collection.insert_one(
-            {
-                "email": email,
-                "full_name": full_name,
-                "hashed_password": hashed_password,
-                "created_at": now,
-            }
-        )
-        return UserInDB(
-            id=str(result.inserted_id),
-            email=email,
-            full_name=full_name,
-            hashed_password=hashed_password,
-            created_at=now,
+        doc = {
+            "email": email,
+            "full_name": full_name,
+            "hashed_password": hashed_password,
+            "providers": ["password"],
+            "created_at": now,
+        }
+        result = await self._collection.insert_one(doc)
+        return _doc_to_user({**doc, "_id": result.inserted_id})
+
+    async def create_oauth_user(
+        self, email: str, full_name: str, provider: str
+    ) -> UserInDB:
+        """Account created via OAuth, with no password."""
+        now = datetime.now(timezone.utc)
+        doc = {
+            "email": email,
+            "full_name": full_name,
+            "hashed_password": None,
+            "providers": [provider],
+            "created_at": now,
+        }
+        result = await self._collection.insert_one(doc)
+        return _doc_to_user({**doc, "_id": result.inserted_id})
+
+    async def add_provider(self, user_id: str, provider: str) -> None:
+        """Record that an existing account can now also sign in this way.
+
+        $addToSet so re-linking the same provider is idempotent.
+        """
+        await self._collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$addToSet": {"providers": provider}},
         )
 
     async def ensure_indexes(self) -> None:

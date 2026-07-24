@@ -8,12 +8,15 @@ from app.api.deps import get_auth_service, get_current_user
 from app.core.config import settings
 from app.models.user import UserInDB
 from app.schemas.auth import (
+    AuthConfigResponse,
     ForgotPasswordRequest,
     LoginRequest,
+    OAuthCallbackRequest,
     RegisterRequest,
     TokenResponse,
     UserPublic,
 )
+from app.services import oauth_service
 from app.services.auth_service import AuthService
 
 router = APIRouter()
@@ -83,6 +86,52 @@ async def login(
     auth_service: AuthService = Depends(get_auth_service),
 ) -> TokenResponse:
     user = await auth_service.authenticate(payload.email, payload.password)
+    _set_refresh_cookie(response, await auth_service.issue_refresh_token(user))
+    return TokenResponse(access_token=AuthService.issue_token(user))
+
+
+@router.get("/config", response_model=AuthConfigResponse)
+async def auth_config() -> AuthConfigResponse:
+    """Which sign-in methods are available. Public and secret-free — it
+    exists so the frontend shows a Google/GitHub button only when that
+    provider is actually configured, rather than a button that 404s."""
+    return AuthConfigResponse(providers=oauth_service.enabled_providers())
+
+
+def _validate_redirect_uri(redirect_uri: str) -> None:
+    """The redirect_uri must be one of our own origins + /auth/callback.
+
+    The provider already enforces that it matches a registered URI, but
+    validating here too stops our client credentials being driven against
+    any redirect an attacker might smuggle in.
+    """
+    allowed = {f"{origin}/auth/callback" for origin in settings.cors_origins_list}
+    if redirect_uri not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid redirect URI."
+        )
+
+
+@router.post("/oauth/{provider}/callback", response_model=TokenResponse)
+async def oauth_callback(
+    provider: str,
+    payload: OAuthCallbackRequest,
+    response: Response,
+    auth_service: AuthService = Depends(get_auth_service),
+) -> TokenResponse:
+    """Complete an OAuth sign-in.
+
+    The browser has already bounced through the provider and holds a
+    one-time `code`; it posts that here. The client secret never leaves
+    the server. On success this issues the same access token + refresh
+    cookie as password login, so the rest of the app treats an OAuth
+    session identically.
+    """
+    _validate_redirect_uri(payload.redirect_uri)
+    identity = await oauth_service.exchange_code(provider, payload.code, payload.redirect_uri)
+    user = await auth_service.sign_in_with_oauth(
+        identity.email, identity.full_name, identity.provider
+    )
     _set_refresh_cookie(response, await auth_service.issue_refresh_token(user))
     return TokenResponse(access_token=AuthService.issue_token(user))
 

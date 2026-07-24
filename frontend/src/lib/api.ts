@@ -184,6 +184,19 @@ export const auth = {
   /** Revokes the session server-side, not just in this browser. */
   logout: () => request<void>("/auth/logout", { method: "POST", withCookies: true }),
 
+  /**
+   * Complete an OAuth sign-in by handing the provider's one-time code to
+   * the backend, which exchanges it (with the client secret) and returns
+   * a session — same shape as password login, including the refresh
+   * cookie, so withCookies is required.
+   */
+  oauthCallback: (provider: string, code: string, redirect_uri: string) =>
+    request<TokenResponse>(`/auth/oauth/${provider}/callback`, {
+      method: "POST",
+      body: { code, redirect_uri },
+      withCookies: true,
+    }),
+
   me: (token: string) => request<User>("/auth/me", { token }),
 
   forgotPassword: (email: string) =>

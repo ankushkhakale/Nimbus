@@ -37,6 +37,8 @@ interface AuthContextValue {
   isRestoring: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, fullName: string, password: string) => Promise<void>;
+  /** Finish an OAuth sign-in from the provider's code. */
+  completeOAuth: (provider: string, code: string, redirectUri: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -98,6 +100,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [login]
   );
 
+  const completeOAuth = useCallback(
+    async (provider: string, code: string, redirectUri: string) => {
+      setStatus("authenticating");
+      try {
+        const { access_token } = await authApi.oauthCallback(provider, code, redirectUri);
+        const profile = await authApi.me(access_token);
+        setToken(access_token);
+        setUser(profile);
+        setStatus("authenticated");
+      } catch (error) {
+        setToken(null);
+        setUser(null);
+        setStatus("unauthenticated");
+        throw error;
+      }
+    },
+    []
+  );
+
   const logout = useCallback(async () => {
     // Clear locally first so the UI responds immediately even if the
     // network call is slow — but still call the server, because only it
@@ -122,9 +143,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isRestoring: status === "restoring",
       login,
       register,
+      completeOAuth,
       logout,
     }),
-    [user, token, status, login, register, logout]
+    [user, token, status, login, register, completeOAuth, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
