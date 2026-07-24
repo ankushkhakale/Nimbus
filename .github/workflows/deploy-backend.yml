@@ -120,8 +120,8 @@ jobs:
               "ThumbnailerS3Key=${{ steps.upload.outputs.thumb_key }}" \
               "GoogleClientId=${{ vars.GOOGLE_CLIENT_ID }}" \
               "GoogleClientSecret=${{ secrets.GOOGLE_CLIENT_SECRET }}" \
-              "GithubClientId=${{ vars.GITHUB_CLIENT_ID }}" \
-              "GithubClientSecret=${{ secrets.GITHUB_CLIENT_SECRET }}"
+              "GithubClientId=${{ vars.GH_CLIENT_ID }}" \
+              "GithubClientSecret=${{ secrets.GH_CLIENT_SECRET }}"
 
       - name: Smoke test the deployment
         # A green CloudFormation update only means the resources exist. If
