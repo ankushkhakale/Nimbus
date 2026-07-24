@@ -9,7 +9,7 @@
  * page views.
  */
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { ImageOff } from "lucide-react";
 
 import { Item, files as filesApi } from "@/lib/api";
@@ -104,8 +104,11 @@ export function PhotoGrid({
             {heading}
           </h3>
           <div
+            className="photo-grid"
             style={{
               display: "grid",
+              // The .photo-grid class overrides this to tighter columns on
+              // a phone; this inline value is the desktop default.
               gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
               gap: 8,
             }}

@@ -1,18 +1,10 @@
 "use client";
 
-import React from "react";
-
 import { FileBrowser } from "@/components/dashboard/FileBrowser";
-import { UserMenu } from "@/components/UserMenu";
 
 export default function DashboardPage() {
-  return (
-    <>
-      {/* Sits above the browser's own header row. */}
-      <div style={{ position: "fixed", top: "16px", right: "40px", zIndex: 60 }}>
-        <UserMenu />
-      </div>
-      <FileBrowser />
-    </>
-  );
+  // The user menu now lives inside the browser's toolbar (see Toolbar in
+  // FileBrowser), so it flows with the header instead of a fixed overlay
+  // that overlapped the toolbar controls on narrow screens.
+  return <FileBrowser />;
 }
