@@ -123,6 +123,16 @@ jobs:
               "GithubClientId=${{ vars.GH_CLIENT_ID }}" \
               "GithubClientSecret=${{ secrets.GH_CLIENT_SECRET }}"
 
+      - name: Re-assert S3 bucket CORS
+        # The bucket predates the stack and is not managed by it, so its
+        # CORS is set here from the same origins list the API uses. This
+        # makes the two layers impossible to drift apart — an upload works
+        # in the browser only if BOTH the API and the bucket allow the
+        # frontend's origin, and the bucket half was silently wrong once.
+        run: |
+          scripts/configure_bucket_cors.sh \
+            "${{ vars.S3_BUCKET_NAME }}" "${{ vars.CORS_ORIGINS }}" ap-south-1
+
       - name: Smoke test the deployment
         # A green CloudFormation update only means the resources exist. If
         # the app cannot reach Atlas, health returns 503 and this fails

@@ -1,15 +1,35 @@
 import React from "react";
 import Link from "next/link";
-import { Cloud } from "lucide-react";
+import { ArrowLeft, Cloud } from "lucide-react";
 
 /**
- * Shared frame for the auth pages. Flat, centred, no decoration — the
- * previous version painted blurred indigo and pink orbs behind the card,
- * which the current system has no place for.
+ * Shared frame for the auth pages. Flat, centred, no decoration.
+ *
+ * The logo links home, and there is also an explicit "Back to home" link
+ * top-left — a logo alone is not an obvious way back for most people.
  */
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="auth-container">
+    <div className="auth-container" style={{ position: "relative" }}>
+      <Link
+        href="/"
+        aria-label="Back to home"
+        style={{
+          position: "absolute",
+          top: 24,
+          left: 24,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          fontSize: 14,
+          fontWeight: 500,
+          color: "var(--text-med)",
+        }}
+      >
+        <ArrowLeft size={16} />
+        Back to home
+      </Link>
+
       <div
         style={{
           width: "100%",
