@@ -40,6 +40,15 @@ class Settings(BaseSettings):
     REFRESH_COOKIE_SAMESITE: str = "none"
     REFRESH_COOKIE_SECURE: bool = True
 
+    # OAuth (Google, GitHub). Empty client ids leave the provider
+    # disabled — the endpoints 404 and the frontend hides the buttons —
+    # so the app runs fine with password auth alone until these are set.
+    # Secrets live only here (Lambda env vars), never in the frontend.
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GITHUB_CLIENT_ID: str = ""
+    GITHUB_CLIENT_SECRET: str = ""
+
     # S3 / Object Storage Settings
     # Credentials come from boto3's default chain (env vars locally, the
     # execution role on Lambda) — deliberately not settings, so keys never

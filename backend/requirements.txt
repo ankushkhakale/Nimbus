@@ -11,3 +11,7 @@ python-jose[cryptography]>=3.3.0
 bcrypt>=4.1.0
 boto3>=1.34.0
 mangum>=0.17.0
+# OAuth: server-side code exchange with Google/GitHub. httpx already ships
+# transitively (starlette depends on it), but pin it as a direct runtime
+# dependency so the Lambda bundle is guaranteed to include it.
+httpx>=0.27.0

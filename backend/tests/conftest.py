@@ -24,6 +24,19 @@ class FakeUserRepository:
         return self._by_id.get(user_id)
 
     async def create(self, email: str, full_name: str, hashed_password: str) -> UserInDB:
+        return self._insert(email, full_name, hashed_password, ["password"])
+
+    async def create_oauth_user(self, email: str, full_name: str, provider: str) -> UserInDB:
+        return self._insert(email, full_name, None, [provider])
+
+    async def add_provider(self, user_id: str, provider: str) -> None:
+        user = self._by_id.get(user_id)
+        if user and provider not in user.providers:
+            self._by_id[user_id] = user.model_copy(
+                update={"providers": [*user.providers, provider]}
+            )
+
+    def _insert(self, email, full_name, hashed_password, providers) -> UserInDB:
         user_id = str(self._next_id)
         self._next_id += 1
         user = UserInDB(
@@ -31,6 +44,7 @@ class FakeUserRepository:
             email=email,
             full_name=full_name,
             hashed_password=hashed_password,
+            providers=providers,
             created_at=datetime.now(timezone.utc),
         )
         self._by_id[user_id] = user
