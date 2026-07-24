@@ -1,6 +1,7 @@
 REGISTER_URL = "/api/v1/auth/register"
 LOGIN_URL = "/api/v1/auth/login"
 ME_URL = "/api/v1/auth/me"
+CHANGE_PASSWORD_URL = "/api/v1/auth/me/change-password"
 FORGOT_PASSWORD_URL = "/api/v1/auth/forgot-password"
 
 
@@ -117,3 +118,117 @@ def test_forgot_password_gives_identical_response_for_unknown_email(client):
     unknown = client.post(FORGOT_PASSWORD_URL, json={"email": "nobody@example.com"})
     assert known.status_code == unknown.status_code == 202
     assert known.json() == unknown.json()
+
+
+def test_me_returns_storage_quota_and_providers(client, auth_headers):
+    resp = client.get(ME_URL, headers=auth_headers())
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["providers"] == ["password"]
+    assert body["has_password"] is True
+    assert body["storage_quota_bytes"] == 100 * 1024**3
+
+
+def test_update_profile_changes_full_name(client, auth_headers):
+    headers = auth_headers()
+    resp = client.patch(ME_URL, json={"full_name": "Alice Renamed"}, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["full_name"] == "Alice Renamed"
+
+    # Persisted, not just echoed back.
+    resp = client.get(ME_URL, headers=headers)
+    assert resp.json()["full_name"] == "Alice Renamed"
+
+
+def test_update_profile_changes_storage_quota(client, auth_headers):
+    headers = auth_headers()
+    new_quota = 5 * 1024**4  # 5 TB
+    resp = client.patch(ME_URL, json={"storage_quota_bytes": new_quota}, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["storage_quota_bytes"] == new_quota
+
+
+def test_update_profile_rejects_quota_outside_bounds(client, auth_headers):
+    headers = auth_headers()
+    too_small = client.patch(ME_URL, json={"storage_quota_bytes": 1024}, headers=headers)
+    assert too_small.status_code == 422
+
+    too_large = client.patch(ME_URL, json={"storage_quota_bytes": 1024**6}, headers=headers)
+    assert too_large.status_code == 422
+
+
+def test_update_profile_requires_authorization(client):
+    resp = client.patch(ME_URL, json={"full_name": "Nobody"})
+    assert resp.status_code == 401
+
+
+def test_change_password_requires_current_password_when_one_exists(client, auth_headers):
+    headers = auth_headers()
+    resp = client.post(
+        CHANGE_PASSWORD_URL,
+        json={"current_password": None, "new_password": "newpassword123"},
+        headers=headers,
+    )
+    assert resp.status_code == 401
+
+
+def test_change_password_rejects_wrong_current_password(client, auth_headers):
+    headers = auth_headers()
+    resp = client.post(
+        CHANGE_PASSWORD_URL,
+        json={"current_password": "wrongpassword", "new_password": "newpassword123"},
+        headers=headers,
+    )
+    assert resp.status_code == 401
+
+
+def test_change_password_succeeds_and_new_password_logs_in(client, auth_headers):
+    headers = auth_headers()
+    resp = client.post(
+        CHANGE_PASSWORD_URL,
+        json={"current_password": "password123", "new_password": "newpassword123"},
+        headers=headers,
+    )
+    assert resp.status_code == 204
+
+    old_login = client.post(LOGIN_URL, json={"email": "owner@example.com", "password": "password123"})
+    assert old_login.status_code == 401
+
+    new_login = client.post(
+        LOGIN_URL, json={"email": "owner@example.com", "password": "newpassword123"}
+    )
+    assert new_login.status_code == 200
+
+
+def test_change_password_rejects_short_new_password(client, auth_headers):
+    headers = auth_headers()
+    resp = client.post(
+        CHANGE_PASSWORD_URL,
+        json={"current_password": "password123", "new_password": "short"},
+        headers=headers,
+    )
+    assert resp.status_code == 422
+
+
+def test_change_password_on_oauth_only_account_needs_no_current_password(
+    client, fake_user_repo
+):
+    from app.utils.security import create_access_token
+
+    user = fake_user_repo._insert("oauth@example.com", "OAuth Only", None, ["google"])
+    token = create_access_token(subject=user.id)
+
+    resp = client.post(
+        CHANGE_PASSWORD_URL,
+        json={"current_password": None, "new_password": "brandnewpassword"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 204
+
+    login = client.post(
+        LOGIN_URL, json={"email": "oauth@example.com", "password": "brandnewpassword"}
+    )
+    assert login.status_code == 200
+
+    me = client.get(ME_URL, headers={"Authorization": f"Bearer {token}"})
+    assert "password" in me.json()["providers"]

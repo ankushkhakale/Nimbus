@@ -39,3 +39,25 @@ class UserPublic(BaseModel):
     id: str
     email: EmailStr
     full_name: str
+    providers: list[str]
+    has_password: bool
+    storage_quota_bytes: int
+
+
+class UpdateProfileRequest(BaseModel):
+    """Both fields optional: send only what changed."""
+
+    full_name: str | None = Field(default=None, min_length=1, max_length=100)
+    # Bounded so the display denominator can't be set to something
+    # nonsensical (zero, negative, or absurdly large); still purely
+    # cosmetic — nothing enforces it against actual S3 usage.
+    storage_quota_bytes: int | None = Field(default=None, ge=1024**3, le=1024**5)
+
+
+class ChangePasswordRequest(BaseModel):
+    # Optional: accounts created purely via OAuth have no current password
+    # to check, so setting one for the first time supplies only the new
+    # one. An account that already has a password must supply it — the
+    # endpoint enforces that, not this schema.
+    current_password: str | None = None
+    new_password: str = Field(min_length=8, max_length=72)

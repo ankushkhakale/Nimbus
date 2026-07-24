@@ -84,6 +84,39 @@ class AuthService:
             await self._users.add_provider(existing.id, provider)
         return existing
 
+    # --- profile ---------------------------------------------------------
+
+    async def update_profile(
+        self, user_id: str, *, full_name: str | None, storage_quota_bytes: int | None
+    ) -> UserInDB:
+        updated = await self._users.update_profile(
+            user_id, full_name=full_name, storage_quota_bytes=storage_quota_bytes
+        )
+        if updated is None:  # pragma: no cover - account deleted mid-request
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found.")
+        return updated
+
+    async def change_password(
+        self, user: UserInDB, current_password: str | None, new_password: str
+    ) -> None:
+        """Set or change a password.
+
+        An account that already has one must prove it first — otherwise
+        a hijacked access token (e.g. a still-live session on a stolen
+        device) could silently take over the account by setting a new
+        password. An OAuth-only account has nothing to prove yet, so
+        `current_password` is simply not required the first time.
+        """
+        if user.has_password:
+            if not current_password or not verify_password(
+                current_password, user.hashed_password  # type: ignore[arg-type]
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Current password is incorrect.",
+                )
+        await self._users.update_password(user.id, hash_password(new_password))
+
     # --- tokens --------------------------------------------------------
 
     @staticmethod
