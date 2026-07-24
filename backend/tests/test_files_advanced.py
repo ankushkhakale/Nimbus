@@ -104,6 +104,42 @@ def test_photos_are_isolated_per_user(client, auth_headers, fake_storage, fake_i
     assert client.get(f"{FILES}/photos", headers=b).json()["total"] == 0
 
 
+# --- global video library ------------------------------------------------
+
+def test_videos_span_every_folder(client, auth_headers, fake_storage, fake_item_repo):
+    """Mirrors the photo library: organised by time, not by folder."""
+    h = auth_headers()
+    album = _folder(client, h, "Album")
+    nested = _folder(client, h, "Nested", album)
+    _ready_file(client, h, fake_storage, fake_item_repo, "root.mp4", None, "video/mp4")
+    _ready_file(client, h, fake_storage, fake_item_repo, "album.mp4", album, "video/mp4")
+    _ready_file(client, h, fake_storage, fake_item_repo, "deep.mp4", nested, "video/mp4")
+
+    body = client.get(f"{FILES}/videos", headers=h).json()
+    assert body["total"] == 3
+    assert {i["name"] for i in body["items"]} == {"root.mp4", "album.mp4", "deep.mp4"}
+
+
+def test_videos_exclude_non_videos_and_pending_uploads(client, auth_headers, fake_storage,
+                                                       fake_item_repo):
+    h = auth_headers()
+    _ready_file(client, h, fake_storage, fake_item_repo, "doc.pdf", None, "application/pdf")
+    _ready_file(client, h, fake_storage, fake_item_repo, "shown.mp4", None, "video/mp4")
+    client.post(f"{FILES}/upload-url",
+                json={"name": "pending.mp4", "parent_id": None, "content_type": "video/mp4"},
+                headers=h)
+
+    body = client.get(f"{FILES}/videos", headers=h).json()
+    assert [i["name"] for i in body["items"]] == ["shown.mp4"]
+
+
+def test_videos_are_isolated_per_user(client, auth_headers, fake_storage, fake_item_repo):
+    a = auth_headers("a@example.com")
+    b = auth_headers("b@example.com")
+    _ready_file(client, a, fake_storage, fake_item_repo, "mine.mp4", None, "video/mp4")
+    assert client.get(f"{FILES}/videos", headers=b).json()["total"] == 0
+
+
 # --- batch thumbnail signing -------------------------------------------
 
 def test_thumbnail_urls_signs_a_batch_in_one_call(client, auth_headers, fake_storage,
