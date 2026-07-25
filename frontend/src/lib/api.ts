@@ -343,6 +343,13 @@ export const files = {
   photoStacks: (token: string) =>
     request<{ groups: { items: Item[] }[] }>("/files/photo-stacks", { token }),
 
+  /** Every geotagged photo, for the map view. Most photos have no GPS
+   * EXIF and are simply absent from the result. */
+  mapPoints: (token: string) =>
+    request<{ photos: { item: Item; lat: number; lon: number }[] }>("/files/map-points", {
+      token,
+    }),
+
   trash: (token: string, opts: { offset?: number; limit?: number } = {}) =>
     request<Page<Item>>(`/files/trash${qs({ offset: opts.offset, limit: opts.limit })}`, {
       token,

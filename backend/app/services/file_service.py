@@ -42,6 +42,11 @@ DUPLICATE_HAMMING_THRESHOLD = 4
 STACK_HAMMING_THRESHOLD = 10
 STACK_TIME_WINDOW_SECONDS = 120
 
+# Same bounded-scan reasoning as DUPLICATE_SCAN_LIMIT: the map view reads
+# one HEAD's worth of metadata per image, so this keeps a single request
+# to a comfortable number of round trips against S3.
+MAP_SCAN_LIMIT = 1000
+
 
 def _hamming(a: str, b: str) -> int:
     return bin(int(a, 16) ^ int(b, 16)).count("1")
@@ -268,6 +273,31 @@ class FileService:
         return self._cluster(
             hashed, max_distance=STACK_HAMMING_THRESHOLD, max_seconds=STACK_TIME_WINDOW_SECONDS
         )
+
+    # --- map view --------------------------------------------------------
+    #
+    # Same opportunistic pattern as duplicate detection: the thumbnailer
+    # Lambda already extracts GPS EXIF, when present, into the thumbnail
+    # object's metadata. This just reads it back. A photo with no GPS tag
+    # (the common case) is silently omitted rather than erroring.
+
+    async def geo_photos(self, user_id: str) -> list[tuple[Item, float, float]]:
+        images, _ = await self._items.list_images(user_id, offset=0, limit=MAP_SCAN_LIMIT)
+        out: list[tuple[Item, float, float]] = []
+        for item in images:
+            if not item.s3_key:
+                continue
+            meta = self._storage.metadata(thumbnail_key(item.s3_key))
+            if not meta:
+                continue
+            lat_raw, lon_raw = meta.get("lat"), meta.get("lon")
+            if lat_raw is None or lon_raw is None:
+                continue
+            try:
+                out.append((item, float(lat_raw), float(lon_raw)))
+            except ValueError:
+                continue
+        return out
 
     # --- creation ------------------------------------------------------
 

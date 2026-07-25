@@ -22,6 +22,8 @@ from app.schemas.files import (
     CategoryUsage,
     CreateFolderRequest,
     DownloadUrlResponse,
+    GeoPhoto,
+    GeoPhotosResponse,
     ItemGroup,
     ItemGroupsResponse,
     ItemResponse,
@@ -186,6 +188,22 @@ async def list_photo_stacks(
     groups = await files.find_photo_stacks(user.id)
     return ItemGroupsResponse(
         groups=[ItemGroup(items=[ItemResponse.from_item(i) for i in g]) for g in groups]
+    )
+
+
+@router.get("/map-points", response_model=GeoPhotosResponse)
+async def list_map_points(
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> GeoPhotosResponse:
+    """Every geotagged photo the user owns, for the map view.
+
+    Read-only, and silently skips anything without GPS EXIF — most
+    photos have none, and that's expected rather than an error.
+    """
+    points = await files.geo_photos(user.id)
+    return GeoPhotosResponse(
+        photos=[GeoPhoto(item=ItemResponse.from_item(i), lat=lat, lon=lon) for i, lat, lon in points]
     )
 
 

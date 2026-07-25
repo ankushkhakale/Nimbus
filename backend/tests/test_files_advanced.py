@@ -34,6 +34,16 @@ def _ready_image_with_hash(client, h, storage, repo, name, phash, parent=None):
     return item_id
 
 
+def _ready_image_with_gps(client, h, storage, repo, name, lat, lon, parent=None):
+    """A ready image whose thumbnail carries GPS metadata, as the
+    thumbnailer Lambda would write when the photo has EXIF GPS tags."""
+    item_id = _ready_file(client, h, storage, repo, name, parent, "image/jpeg")
+    thumb_key = thumbnail_key(repo._items[item_id].s3_key)
+    storage.uploaded[thumb_key] = 1
+    storage.object_metadata[thumb_key] = {"phash": "0" * 16, "lat": f"{lat:.6f}", "lon": f"{lon:.6f}"}
+    return item_id
+
+
 # --- pagination ---------------------------------------------------------
 
 def test_listing_is_paginated(client, auth_headers):
@@ -692,3 +702,36 @@ def test_photo_stacks_are_isolated_per_user(client, auth_headers, fake_storage, 
     _set_taken_at(fake_item_repo, item2, now)
 
     assert client.get(f"{FILES}/photo-stacks", headers=b).json()["groups"] == []
+
+
+# --- map view -------------------------------------------------------------
+
+def test_map_points_returns_geotagged_photos(client, auth_headers, fake_storage, fake_item_repo):
+    h = auth_headers()
+    _ready_image_with_gps(client, h, fake_storage, fake_item_repo, "geo.jpg", 12.9716, 77.5946)
+    # No GPS EXIF — the common case — must be silently omitted.
+    _ready_image_with_hash(client, h, fake_storage, fake_item_repo, "no-gps.jpg", "0" * 16)
+
+    body = client.get(f"{FILES}/map-points", headers=h).json()
+    assert len(body["photos"]) == 1
+    point = body["photos"][0]
+    assert point["item"]["name"] == "geo.jpg"
+    assert point["lat"] == 12.9716
+    assert point["lon"] == 77.5946
+
+
+def test_map_points_ignores_images_without_a_thumbnail_yet(
+    client, auth_headers, fake_storage, fake_item_repo
+):
+    h = auth_headers()
+    _ready_file(client, h, fake_storage, fake_item_repo, "pending.jpg", None, "image/jpeg")
+
+    assert client.get(f"{FILES}/map-points", headers=h).json()["photos"] == []
+
+
+def test_map_points_are_isolated_per_user(client, auth_headers, fake_storage, fake_item_repo):
+    a = auth_headers("a@example.com")
+    b = auth_headers("b@example.com")
+    _ready_image_with_gps(client, a, fake_storage, fake_item_repo, "a.jpg", 1.0, 2.0)
+
+    assert client.get(f"{FILES}/map-points", headers=b).json()["photos"] == []
