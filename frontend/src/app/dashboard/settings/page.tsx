@@ -17,27 +17,33 @@ import { useAuth, errorMessage } from "@/lib/auth-context";
 import { LoginActivity, auth as authApi } from "@/lib/api";
 import { FormError } from "@/components/FormError";
 import { formatBytes, formatRelativeDate } from "@/lib/format";
+import { useTranslation } from "@/lib/i18n";
 import {
+  ThemePreference,
+  applyTheme,
   getDefaultView,
   getReducedMotionOverride,
+  getTheme,
   setDefaultView,
   setReducedMotionOverride,
+  setTheme,
 } from "@/lib/preferences";
 import type { View } from "@/lib/use-files";
 
 type Tab = "profile" | "storage" | "security" | "preferences" | "about";
 
-const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
-  { key: "profile", label: "Profile", icon: <UserIcon size={16} /> },
-  { key: "storage", label: "Storage", icon: <HardDrive size={16} /> },
-  { key: "security", label: "Security", icon: <Key size={16} /> },
-  { key: "preferences", label: "Preferences", icon: <Sliders size={16} /> },
-  { key: "about", label: "About", icon: <Cloud size={16} /> },
+const TABS: { key: Tab; i18nKey: string; icon: React.ReactNode }[] = [
+  { key: "profile", i18nKey: "settings.tab.profile", icon: <UserIcon size={16} /> },
+  { key: "storage", i18nKey: "settings.tab.storage", icon: <HardDrive size={16} /> },
+  { key: "security", i18nKey: "settings.tab.security", icon: <Key size={16} /> },
+  { key: "preferences", i18nKey: "settings.tab.preferences", icon: <Sliders size={16} /> },
+  { key: "about", i18nKey: "settings.tab.about", icon: <Cloud size={16} /> },
 ];
 
 const VALID_TABS: Tab[] = ["profile", "storage", "security", "preferences", "about"];
 
 export default function SettingsPage() {
+  const { t } = useTranslation();
   // Honour ?tab=… so deep links (e.g. the storage banner's "Settings"
   // button) land on the right section. Read once, lazily, to avoid
   // touching window during the static-export SSR pass.
@@ -64,11 +70,11 @@ export default function SettingsPage() {
           style={{ textDecoration: "none" }}
         >
           <ArrowLeft size={16} />
-          <span className="btn-label">Back to Nimbus</span>
+          <span className="btn-label">{t("settings.back")}</span>
         </Link>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <Cloud size={20} color="var(--primary)" strokeWidth={2.5} />
-          <span style={{ fontWeight: 700, fontSize: "16px" }}>Settings</span>
+          <span style={{ fontWeight: 700, fontSize: "16px" }}>{t("settings.title")}</span>
         </div>
         <span style={{ width: 0 }} />
       </header>
@@ -83,11 +89,11 @@ export default function SettingsPage() {
             overflowX: "auto",
           }}
         >
-          {TABS.map((t) => (
+          {TABS.map((entry) => (
             <button
-              key={t.key}
+              key={entry.key}
               type="button"
-              onClick={() => setTab(t.key)}
+              onClick={() => setTab(entry.key)}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -95,16 +101,17 @@ export default function SettingsPage() {
                 padding: "10px 16px",
                 background: "transparent",
                 border: "none",
-                borderBottom: tab === t.key ? "2px solid var(--primary)" : "2px solid transparent",
-                color: tab === t.key ? "var(--text-high)" : "var(--text-med)",
-                fontWeight: tab === t.key ? 600 : 500,
+                borderBottom:
+                  tab === entry.key ? "2px solid var(--primary)" : "2px solid transparent",
+                color: tab === entry.key ? "var(--text-high)" : "var(--text-med)",
+                fontWeight: tab === entry.key ? 600 : 500,
                 fontSize: "14px",
                 cursor: "pointer",
                 whiteSpace: "nowrap",
               }}
             >
-              {t.icon}
-              {t.label}
+              {entry.icon}
+              {t(entry.i18nKey)}
             </button>
           ))}
         </nav>
@@ -537,8 +544,10 @@ function LoginActivityCard() {
 }
 
 function PreferencesTab() {
+  const { t, locale, setLocale } = useTranslation();
   const [defaultView, setDefaultViewState] = useState<View>(() => getDefaultView());
   const [reducedMotion, setReducedMotionState] = useState(() => getReducedMotionOverride());
+  const [theme, setThemeState] = useState<ThemePreference>(() => getTheme());
 
   const handleDefaultView = (view: View) => {
     setDefaultViewState(view);
@@ -551,14 +560,59 @@ function PreferencesTab() {
     document.documentElement.dataset.reducedMotion = enabled ? "true" : "false";
   };
 
+  const handleTheme = (next: ThemePreference) => {
+    setThemeState(next);
+    setTheme(next);
+    applyTheme(next);
+  };
+
   return (
     <div className="card" style={{ padding: 24 }}>
-      <h2 style={{ fontSize: 16, marginBottom: 4 }}>Preferences</h2>
+      <h2 style={{ fontSize: 16, marginBottom: 4 }}>{t("settings.tab.preferences")}</h2>
       <p style={{ fontSize: 13, color: "var(--text-med)", marginBottom: 20 }}>
         Stored in this browser only — these don&apos;t follow you to another device.
       </p>
 
       <div className="form-group">
+        <label className="form-label" htmlFor="theme">
+          {t("prefs.theme")}
+        </label>
+        <select
+          id="theme"
+          className="form-input"
+          value={theme}
+          onChange={(e) => handleTheme(e.target.value as ThemePreference)}
+          style={{ cursor: "pointer" }}
+        >
+          <option value="system">{t("prefs.theme.system")}</option>
+          <option value="light">{t("prefs.theme.light")}</option>
+          <option value="dark">{t("prefs.theme.dark")}</option>
+        </select>
+        <p style={{ fontSize: 12, color: "var(--text-low)", marginTop: 6 }}>
+          {t("prefs.theme.help")}
+        </p>
+      </div>
+
+      <div className="form-group" style={{ marginTop: 20 }}>
+        <label className="form-label" htmlFor="language">
+          {t("prefs.language")}
+        </label>
+        <select
+          id="language"
+          className="form-input"
+          value={locale}
+          onChange={(e) => setLocale(e.target.value as "en" | "hi")}
+          style={{ cursor: "pointer" }}
+        >
+          <option value="en">{t("prefs.language.en")}</option>
+          <option value="hi">{t("prefs.language.hi")}</option>
+        </select>
+        <p style={{ fontSize: 12, color: "var(--text-low)", marginTop: 6 }}>
+          {t("prefs.language.help")}
+        </p>
+      </div>
+
+      <div className="form-group" style={{ marginTop: 20 }}>
         <label className="form-label" htmlFor="default_view">
           Default view on sign-in
         </label>

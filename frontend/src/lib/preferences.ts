@@ -15,6 +15,11 @@ const SORT_PREFIX = "nimbus:sort:";
 const VIEW_MODE_KEY = "nimbus:view-mode";
 const SAVED_SEARCHES_KEY = "nimbus:saved-searches";
 const STORAGE_BANNER_PREFIX = "nimbus:storage-banner-dismissed:";
+const THEME_KEY = "nimbus:theme";
+const LOCALE_KEY = "nimbus:locale";
+
+export type ThemePreference = "system" | "light" | "dark";
+export type Locale = "en" | "hi";
 
 export interface SavedSearch {
   id: string;
@@ -112,4 +117,38 @@ export function isStorageBannerDismissed(level: string): boolean {
 
 export function dismissStorageBanner(level: string): void {
   write(STORAGE_BANNER_PREFIX + level, "1");
+}
+
+// --- theme ---
+
+export function getTheme(): ThemePreference {
+  const stored = read(THEME_KEY);
+  return stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+}
+
+export function setTheme(theme: ThemePreference): void {
+  write(THEME_KEY, theme);
+}
+
+/** Resolve "system" against the OS preference and stamp the concrete
+ * theme onto <html> so the CSS variables switch. Safe to call anytime. */
+export function applyTheme(theme: ThemePreference): void {
+  if (typeof window === "undefined") return;
+  const resolved =
+    theme === "system"
+      ? window.matchMedia("(prefers-color-scheme: light)").matches
+        ? "light"
+        : "dark"
+      : theme;
+  document.documentElement.dataset.theme = resolved;
+}
+
+// --- locale ---
+
+export function getLocale(): Locale {
+  return read(LOCALE_KEY) === "hi" ? "hi" : "en";
+}
+
+export function setLocale(locale: Locale): void {
+  write(LOCALE_KEY, locale);
 }

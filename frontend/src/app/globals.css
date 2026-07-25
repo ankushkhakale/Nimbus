@@ -69,6 +69,32 @@
   --radius-full: 9999px;
 }
 
+/*
+ * Light theme. Only the colour variables are overridden — layout, type,
+ * and radii are shared. ThemeInit stamps data-theme="light" or "dark" on
+ * <html> (resolving "system" via the OS preference), so CSS only handles
+ * the two concrete themes and the default (no attribute) stays dark.
+ */
+:root[data-theme="light"] {
+  --canvas: #ffffff;
+  --surface-soft: #f6f6f6;
+  --surface-card: #ffffff;
+  --surface-elevated: #eeeeee;
+
+  --primary-disabled: #e9eab0;
+
+  --text-high: #0a0a0a;
+  --text-body: #333333;
+  --text-body-strong: #1a1a1a;
+  --text-med: #666666;
+  --text-low: #999999;
+
+  --hairline: #e4e4e4;
+  --hairline-strong: #cccccc;
+
+  color-scheme: light;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;

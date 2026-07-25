@@ -38,6 +38,7 @@ import { Item, SortKey, files as filesApi } from "@/lib/api";
 import { formatBytes, formatRelativeDate } from "@/lib/format";
 import { Crumb, View, useFiles } from "@/lib/use-files";
 import { useAuth } from "@/lib/auth-context";
+import { useTranslation } from "@/lib/i18n";
 import { ViewMode, getViewMode, setViewMode as persistViewMode } from "@/lib/preferences";
 import { FormError } from "@/components/FormError";
 import { UserMenu } from "@/components/UserMenu";
@@ -81,13 +82,13 @@ const DIRECTORY_INPUT_PROPS = {
   directory: "true",
 } as unknown as React.InputHTMLAttributes<HTMLInputElement>;
 
-const NAV: { key: View; label: string; icon: React.ReactNode }[] = [
-  { key: "files", label: "My Cloud", icon: <FolderIcon size={16} /> },
-  { key: "photos", label: "Photos", icon: <ImageIcon size={16} /> },
-  { key: "videos", label: "Videos", icon: <Video size={16} /> },
-  { key: "starred", label: "Starred", icon: <Star size={16} /> },
-  { key: "recent", label: "Recent", icon: <Clock size={16} /> },
-  { key: "trash", label: "Trash", icon: <Trash2 size={16} /> },
+const NAV: { key: View; i18nKey: string; icon: React.ReactNode }[] = [
+  { key: "files", i18nKey: "nav.myCloud", icon: <FolderIcon size={16} /> },
+  { key: "photos", i18nKey: "nav.photos", icon: <ImageIcon size={16} /> },
+  { key: "videos", i18nKey: "nav.videos", icon: <Video size={16} /> },
+  { key: "starred", i18nKey: "nav.starred", icon: <Star size={16} /> },
+  { key: "recent", i18nKey: "nav.recent", icon: <Clock size={16} /> },
+  { key: "trash", i18nKey: "nav.trash", icon: <Trash2 size={16} /> },
 ];
 
 // Walks a dropped folder's entries (the drag-and-drop counterpart to
@@ -973,6 +974,7 @@ function Sidebar({
   onOpenShared: () => void;
   onOpenActivity: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <>
       {/* Backdrop only exists on small screens, where the sidebar is a
@@ -1039,7 +1041,7 @@ function Sidebar({
                 }}
               >
                 {entry.icon}
-                {entry.label}
+                {t(entry.i18nKey)}
               </button>
             );
           })}
@@ -1065,7 +1067,7 @@ function Sidebar({
             }}
           >
             <Share2 size={16} />
-            Shared with me
+            {t("nav.sharedWithMe")}
           </button>
 
           <button
@@ -1089,7 +1091,7 @@ function Sidebar({
             }}
           >
             <History size={16} />
-            Activity
+            {t("nav.activity")}
           </button>
         </nav>
 
@@ -1122,6 +1124,7 @@ function Toolbar({
   onOpenDuplicates: () => void;
   onOpenMap: () => void;
 }) {
+  const { t } = useTranslation();
   const readOnly = browser.view === "trash";
   return (
     <header
@@ -1162,7 +1165,7 @@ function Toolbar({
             type="text"
             value={browser.query}
             onChange={(e) => browser.setQuery(e.target.value)}
-            placeholder="Search all files…  (press /)"
+            placeholder={t("toolbar.search")}
             className="form-input"
             style={{ height: 40, fontSize: 14, paddingLeft: 34, paddingRight: 30 }}
           />
@@ -1286,7 +1289,7 @@ function Toolbar({
               style={{ padding: "0 12px" }}
             >
               <FolderPlus size={16} />
-              <span className="btn-label">New folder</span>
+              <span className="btn-label">{t("toolbar.newFolder")}</span>
             </button>
             <button
               type="button"
@@ -1296,7 +1299,7 @@ function Toolbar({
               style={{ padding: "0 12px" }}
             >
               <FolderUp size={16} />
-              <span className="btn-label">Upload folder</span>
+              <span className="btn-label">{t("toolbar.uploadFolder")}</span>
             </button>
             <button
               type="button"
@@ -1306,7 +1309,7 @@ function Toolbar({
               style={{ padding: "0 14px" }}
             >
               <Upload size={16} />
-              <span className="btn-label">Upload</span>
+              <span className="btn-label">{t("toolbar.upload")}</span>
             </button>
           </>
         )}
