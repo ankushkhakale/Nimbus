@@ -25,8 +25,9 @@ import {
 } from "lucide-react";
 
 import { Item, files as filesApi } from "@/lib/api";
-import { formatBytes, formatRelativeDate, isAudio, isImage, isVideo } from "@/lib/format";
+import { formatBytes, formatRelativeDate, isAudio, isDocx, isImage, isVideo } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
+import { DocxPreview } from "./DocxPreview";
 import { PhotoEditor } from "./PhotoEditor";
 import { ZoomableImage } from "./ZoomableImage";
 
@@ -182,7 +183,8 @@ export function Lightbox({
     isImage(item.content_type) ||
     isPdf(item) ||
     isVideo(item.content_type) ||
-    isAudio(item.content_type);
+    isAudio(item.content_type) ||
+    isDocx(item.content_type);
 
   // Printing goes through a hidden iframe rather than window.print(), so
   // only the media prints — not the whole dark-mode viewer chrome behind
@@ -409,6 +411,8 @@ export function Lightbox({
             onEnded={() => slideshow && canNext && onNavigate(index + 1)}
             style={{ width: "100%", maxWidth: 480 }}
           />
+        ) : isDocx(item.content_type) ? (
+          <DocxPreview url={url} onError={() => setPreview({ id: item.id, url: null })} />
         ) : (
           <ZoomableImage
             key={item.id}

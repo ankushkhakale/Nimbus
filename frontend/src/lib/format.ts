@@ -69,3 +69,14 @@ export function isVideo(contentType: string | null): boolean {
 export function isAudio(contentType: string | null): boolean {
   return Boolean(contentType?.startsWith("audio/"));
 }
+
+export function isDocx(contentType: string | null): boolean {
+  return (
+    contentType ===
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  );
+}
+
+export function isPdf(contentType: string | null): boolean {
+  return contentType === "application/pdf";
+}
