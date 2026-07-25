@@ -141,6 +141,19 @@ class ItemGroupsResponse(BaseModel):
     groups: list[ItemGroup]
 
 
+class GeoPhoto(BaseModel):
+    """One geotagged photo — its item plus the decimal-degree coordinates
+    read back from the thumbnail's EXIF-derived metadata."""
+
+    item: ItemResponse
+    lat: float
+    lon: float
+
+
+class GeoPhotosResponse(BaseModel):
+    photos: list[GeoPhoto]
+
+
 class BulkItemsRequest(BaseModel):
     # Bounded so one request cannot ask the server to walk an unbounded
     # number of subtrees.

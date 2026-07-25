@@ -16,6 +16,7 @@ import {
   LayoutGrid,
   List,
   Loader2,
+  Map as MapIcon,
   Music,
   Palette,
   Pencil,
@@ -41,6 +42,7 @@ import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
 import { Lightbox } from "./Lightbox";
 import { MoveDialog } from "./MoveDialog";
 import { DuplicatesPanel } from "./DuplicatesPanel";
+import { MapView } from "./MapView";
 import { OnThisDay } from "./OnThisDay";
 import { PhotoGrid } from "./PhotoGrid";
 import { SearchFilterPanel } from "./SearchFilterPanel";
@@ -110,6 +112,7 @@ export function FileBrowser() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [viewMode, setViewModeState] = useState<ViewMode>(() => getViewMode());
   const [duplicatesOpen, setDuplicatesOpen] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
   const setViewMode = (mode: ViewMode) => {
     setViewModeState(mode);
     persistViewMode(mode);
@@ -263,6 +266,7 @@ export function FileBrowser() {
           viewMode={viewMode}
           onViewModeChange={setViewMode}
           onOpenDuplicates={() => setDuplicatesOpen(true)}
+          onOpenMap={() => setMapOpen(true)}
         />
 
         <input
@@ -545,6 +549,17 @@ export function FileBrowser() {
           onTrash={(ids) => guard(() => b.trashItems(ids))}
         />
       )}
+
+      {mapOpen && (
+        <MapView
+          onClose={() => setMapOpen(false)}
+          onOpen={(item, all) => {
+            setMapOpen(false);
+            setLightboxOverride(all);
+            setLightboxId(item.id);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -725,6 +740,7 @@ function Toolbar({
   viewMode,
   onViewModeChange,
   onOpenDuplicates,
+  onOpenMap,
 }: {
   browser: ReturnType<typeof useFiles>;
   searchRef: React.RefObject<HTMLInputElement | null>;
@@ -734,6 +750,7 @@ function Toolbar({
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
   onOpenDuplicates: () => void;
+  onOpenMap: () => void;
 }) {
   const readOnly = browser.view === "trash";
   return (
@@ -813,6 +830,13 @@ function Toolbar({
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {browser.view === "photos" && !browser.query && (
+          <button type="button" className="btn-secondary" onClick={onOpenMap}>
+            <MapIcon size={15} />
+            <span className="btn-label">Map</span>
+          </button>
+        )}
+
         {browser.view === "photos" && !browser.query && (
           <button type="button" className="btn-secondary" onClick={onOpenDuplicates}>
             <Layers size={15} />

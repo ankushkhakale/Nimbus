@@ -16,7 +16,7 @@ import urllib.parse
 from io import BytesIO
 
 import boto3
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import ExifTags, Image, ImageOps, UnidentifiedImageError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -64,8 +64,42 @@ def _compute_phash(image: Image.Image) -> str:
     return f"{int(''.join(bits), 2):016x}"
 
 
-def _build_thumbnail(raw: bytes) -> tuple[bytes, str]:
+def _extract_gps(image: Image.Image) -> tuple[float, float] | None:
+    """Decimal-degree (lat, lon) from EXIF GPS tags, if present.
+
+    Most photos have none — GPS is opportunistic, stripped by many apps,
+    and never required for anything else in this pipeline. Read before
+    any transform touches the image, since only the original PIL object
+    reliably exposes ``getexif()``.
+    """
+    try:
+        gps_ifd = image.getexif().get_ifd(ExifTags.IFD.GPSInfo)
+    except Exception:
+        return None
+    if not gps_ifd:
+        return None
+
+    def _to_degrees(value, ref) -> float | None:
+        try:
+            d, m, s = (float(x) for x in value)
+        except (TypeError, ValueError):
+            return None
+        degrees = d + m / 60 + s / 3600
+        return -degrees if ref in ("S", "W") else degrees
+
+    lat = _to_degrees(gps_ifd.get(2), gps_ifd.get(1))
+    lon = _to_degrees(gps_ifd.get(4), gps_ifd.get(3))
+    if lat is None or lon is None:
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+    return lat, lon
+
+
+def _build_thumbnail(raw: bytes) -> tuple[bytes, str, tuple[float, float] | None]:
     with Image.open(BytesIO(raw)) as image:
+        gps = _extract_gps(image)
+
         # Phone photos carry orientation in EXIF; without this the
         # thumbnail comes out rotated even though the original looks fine.
         image = ImageOps.exif_transpose(image)
@@ -78,7 +112,7 @@ def _build_thumbnail(raw: bytes) -> tuple[bytes, str]:
         image.thumbnail((MAX_EDGE, MAX_EDGE), Image.Resampling.LANCZOS)
         buffer = BytesIO()
         image.save(buffer, format="JPEG", quality=82, optimize=True, progressive=True)
-        return buffer.getvalue(), phash
+        return buffer.getvalue(), phash, gps
 
 
 def handler(event, _context):
@@ -98,8 +132,16 @@ def handler(event, _context):
                 continue
 
             raw = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
-            thumbnail, phash = _build_thumbnail(raw)
+            thumbnail, phash, gps = _build_thumbnail(raw)
             destination = thumbnail_key(key)
+
+            metadata = {"phash": phash}
+            if gps is not None:
+                # Same free-ride-on-the-PUT trick as phash: only present
+                # when the photo actually carries GPS EXIF, so absence is
+                # the normal case rather than an error.
+                metadata["lat"] = f"{gps[0]:.6f}"
+                metadata["lon"] = f"{gps[1]:.6f}"
 
             s3.put_object(
                 Bucket=bucket,
@@ -107,11 +149,11 @@ def handler(event, _context):
                 Body=thumbnail,
                 ContentType="image/jpeg",
                 CacheControl="public, max-age=31536000, immutable",
-                # Piggybacks the perceptual hash on the thumbnail object's
+                # Piggybacks derived data on the thumbnail object's own
                 # metadata rather than writing to Mongo — this Lambda
                 # deliberately has no database access, and object
                 # metadata is free to attach to a PUT it's already doing.
-                Metadata={"phash": phash},
+                Metadata=metadata,
             )
             generated += 1
             logger.info("Wrote %s (%d bytes)", destination, len(thumbnail))
