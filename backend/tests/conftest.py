@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.api import deps
 from app.api.api_router import api_router
+from app.models.file_version import FileVersion
 from app.models.item import Item, ItemType, UploadStatus
 from app.models.share import Share
 from app.models.user import UserInDB
@@ -436,6 +437,78 @@ class FakeShareRepository:
         return True
 
 
+class FakeVersionRepository:
+    """In-memory stand-in for VersionRepository."""
+
+    def __init__(self):
+        self._versions: dict[str, FileVersion] = {}
+        self._next = 1
+
+    def _new_id(self) -> str:
+        version_id = f"{self._next:024x}"
+        self._next += 1
+        return version_id
+
+    def _for_item(self, user_id, item_id):
+        return [
+            v for v in self._versions.values()
+            if v.user_id == user_id and v.item_id == item_id
+        ]
+
+    async def next_version_number(self, user_id, item_id):
+        existing = self._for_item(user_id, item_id)
+        return max((v.version_number for v in existing), default=0) + 1
+
+    async def create(self, user_id, item_id, *, version_number, s3_key, size, content_type, name):
+        version_id = self._new_id()
+        version = FileVersion(
+            id=version_id,
+            user_id=user_id,
+            item_id=item_id,
+            version_number=version_number,
+            s3_key=s3_key,
+            size=size,
+            content_type=content_type,
+            name=name,
+        )
+        self._versions[version_id] = version
+        return version
+
+    async def list_for_item(self, user_id, item_id):
+        return sorted(
+            self._for_item(user_id, item_id), key=lambda v: v.version_number, reverse=True
+        )
+
+    async def get(self, user_id, version_id):
+        version = self._versions.get(version_id)
+        if not version or version.user_id != user_id:
+            return None
+        return version
+
+    async def count_for_item(self, user_id, item_id):
+        return len(self._for_item(user_id, item_id))
+
+    async def oldest_for_item(self, user_id, item_id):
+        items = sorted(self._for_item(user_id, item_id), key=lambda v: v.version_number)
+        return items[0] if items else None
+
+    async def delete(self, user_id, version_id):
+        version = self._versions.get(version_id)
+        if not version or version.user_id != user_id:
+            return False
+        del self._versions[version_id]
+        return True
+
+    async def list_all_for_item(self, user_id, item_id):
+        return self._for_item(user_id, item_id)
+
+    async def delete_all_for_item(self, user_id, item_id):
+        doomed = [v.id for v in self._for_item(user_id, item_id)]
+        for vid in doomed:
+            del self._versions[vid]
+        return len(doomed)
+
+
 class FakeStorage:
     """Object storage stub; `uploaded` stands in for what S3 holds."""
 
@@ -474,6 +547,14 @@ class FakeStorage:
         if key not in self.uploaded:
             return None
         return self.object_metadata.get(key, {})
+
+    def copy(self, src_key, dest_key):
+        # Mirror S3 copy_object: the destination now holds the source's
+        # bytes (here, its recorded size and metadata).
+        if src_key in self.uploaded:
+            self.uploaded[dest_key] = self.uploaded[src_key]
+        if src_key in self.object_metadata:
+            self.object_metadata[dest_key] = dict(self.object_metadata[src_key])
 
     def create_multipart_upload(self, key, *, content_type=None):
         upload_id = f"upload-{self._next_upload_id}"
@@ -550,18 +631,31 @@ def fake_share_repo() -> FakeShareRepository:
 
 
 @pytest.fixture
+def fake_version_repo() -> FakeVersionRepository:
+    return FakeVersionRepository()
+
+
+@pytest.fixture
 def fake_storage() -> FakeStorage:
     return FakeStorage()
 
 
 @pytest.fixture
-def client(fake_user_repo, fake_item_repo, fake_share_repo, fake_storage, fake_refresh_repo) -> TestClient:
+def client(
+    fake_user_repo,
+    fake_item_repo,
+    fake_share_repo,
+    fake_version_repo,
+    fake_storage,
+    fake_refresh_repo,
+) -> TestClient:
     app = FastAPI()
     app.include_router(api_router, prefix="/api/v1")
     app.dependency_overrides[deps.get_user_repository] = lambda: fake_user_repo
     app.dependency_overrides[deps.get_refresh_token_repository] = lambda: fake_refresh_repo
     app.dependency_overrides[deps.get_item_repository] = lambda: fake_item_repo
     app.dependency_overrides[deps.get_share_repository] = lambda: fake_share_repo
+    app.dependency_overrides[deps.get_version_repository] = lambda: fake_version_repo
     app.dependency_overrides[deps.get_storage] = lambda: fake_storage
     # https, not http: the refresh cookie is set Secure, and a client
     # correctly refuses to send Secure cookies over plain HTTP. Testing

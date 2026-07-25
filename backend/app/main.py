@@ -10,6 +10,7 @@ from app.repositories.item_repository import ItemRepository
 from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.share_repository import ShareRepository
 from app.repositories.user_repository import UserRepository
+from app.repositories.version_repository import VersionRepository
 
 # Configure basic logging
 logging.basicConfig(
@@ -35,6 +36,7 @@ async def lifespan(app: FastAPI):
     # Includes a TTL index, so expired sessions delete themselves.
     await RefreshTokenRepository(db).ensure_indexes()
     await ShareRepository(db).ensure_indexes()
+    await VersionRepository(db).ensure_indexes()
     yield
     logger.info(f"Shutting down {settings.PROJECT_NAME} backend...")
     await close_mongo_connection()

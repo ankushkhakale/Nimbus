@@ -24,6 +24,8 @@ from app.schemas.files import (
     CompleteMultipartUploadRequest,
     CreateFolderRequest,
     DownloadUrlResponse,
+    FileVersionResponse,
+    FileVersionsResponse,
     GeoPhoto,
     GeoPhotosResponse,
     InitiateMultipartUploadRequest,
@@ -435,6 +437,80 @@ async def abort_multipart_upload(
     files: FileService = Depends(get_file_service),
 ) -> None:
     await files.abort_multipart_upload(user.id, item_id, payload.upload_id)
+
+
+# --- versions ----------------------------------------------------------
+
+
+@router.get("/{item_id}/versions", response_model=FileVersionsResponse)
+async def list_versions(
+    item_id: str,
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> FileVersionsResponse:
+    versions = await files.list_versions(user.id, item_id)
+    return FileVersionsResponse(
+        versions=[
+            FileVersionResponse(
+                id=v.id,
+                version_number=v.version_number,
+                size=v.size,
+                content_type=v.content_type,
+                name=v.name,
+                created_at=v.created_at,
+            )
+            for v in versions
+        ]
+    )
+
+
+@router.post("/{item_id}/new-version-upload-url", response_model=ReplaceUploadUrlResponse)
+async def request_new_version_upload_url(
+    item_id: str,
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> ReplaceUploadUrlResponse:
+    """Snapshot the current bytes as a version and hand back a presigned
+    PUT to upload the replacement. Works for any file type (unlike the
+    image-only /replace-upload-url)."""
+    url = await files.start_new_version(user.id, item_id)
+    return ReplaceUploadUrlResponse(
+        upload_url=url, expires_in=settings.PRESIGNED_URL_EXPIRE_SECONDS
+    )
+
+
+@router.post("/{item_id}/complete-new-version", response_model=ItemResponse)
+async def complete_new_version(
+    item_id: str,
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> ItemResponse:
+    # Keeps the item's existing content_type — a new version is the same
+    # kind of file, so size is re-read from S3 but the type is unchanged.
+    item = await files.complete_upload(user.id, item_id)
+    return ItemResponse.from_item(item)
+
+
+@router.get("/{item_id}/versions/{version_id}/download-url", response_model=DownloadUrlResponse)
+async def request_version_download_url(
+    item_id: str,
+    version_id: str,
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> DownloadUrlResponse:
+    url, expires_in = await files.version_download_url(user.id, item_id, version_id)
+    return DownloadUrlResponse(download_url=url, expires_in=expires_in)
+
+
+@router.post("/{item_id}/versions/{version_id}/restore", response_model=ItemResponse)
+async def restore_version(
+    item_id: str,
+    version_id: str,
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> ItemResponse:
+    item = await files.restore_version(user.id, item_id, version_id)
+    return ItemResponse.from_item(item)
 
 
 @router.post("/{item_id}/replace-upload-url", response_model=ReplaceUploadUrlResponse)
