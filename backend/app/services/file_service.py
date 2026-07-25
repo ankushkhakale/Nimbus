@@ -320,6 +320,54 @@ class FileService:
         url = self._storage.upload_url(key, content_type=content_type)
         return item, url
 
+    async def start_multipart_upload(
+        self,
+        user_id: str,
+        name: str,
+        parent_id: str | None,
+        content_type: str | None,
+        part_count: int,
+    ) -> tuple[Item, str, list[str]]:
+        """Large-file variant of start_upload: the browser PUTs each part
+        directly to S3 (same never-proxy-bytes principle), so one flaky
+        part can be retried instead of restarting a multi-gigabyte
+        upload from zero."""
+        if not (1 <= part_count <= 10_000):  # S3's own hard cap on parts
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="part_count must be between 1 and 10000.",
+            )
+        await self._validate_parent(user_id, parent_id)
+        name = await self._unique_name(user_id, parent_id, name)
+        try:
+            key = build_user_key(user_id, f"files/{uuid4().hex}")
+        except InvalidObjectKey as exc:  # pragma: no cover - defensive
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+        item = await self._items.create_pending_file(user_id, name, parent_id, key, content_type)
+        upload_id = self._storage.create_multipart_upload(key, content_type=content_type)
+        part_urls = [self._storage.presign_part(key, upload_id, n) for n in range(1, part_count + 1)]
+        return item, upload_id, part_urls
+
+    async def complete_multipart_upload(
+        self, user_id: str, item_id: str, upload_id: str, parts: list[tuple[int, str]]
+    ) -> Item:
+        item = await self._require_item(user_id, item_id)
+        if item.is_folder or not item.s3_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Item is not an uploadable file."
+            )
+        self._storage.complete_multipart_upload(item.s3_key, upload_id, parts)
+        return await self.complete_upload(user_id, item_id)
+
+    async def abort_multipart_upload(self, user_id: str, item_id: str, upload_id: str) -> None:
+        item = await self._require_item(user_id, item_id)
+        if item.s3_key:
+            self._storage.abort_multipart_upload(item.s3_key, upload_id)
+        # The item never finished uploading, so there's nothing worth
+        # keeping around as a permanently-pending row.
+        await self._items.hard_delete(user_id, item_id)
+
     async def complete_upload(
         self, user_id: str, item_id: str, *, content_type: str | None = None
     ) -> Item:

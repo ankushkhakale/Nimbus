@@ -443,6 +443,9 @@ class FakeStorage:
         self.uploaded: dict[str, int] = {}
         self.deleted: list[str] = []
         self.object_metadata: dict[str, dict[str, str]] = {}
+        self.multipart_uploads: dict[str, str] = {}  # upload_id -> key
+        self.aborted_multipart_uploads: list[str] = []
+        self._next_upload_id = 1
 
     def upload_url(self, key, *, content_type=None):
         return f"https://upload.test/{key}"
@@ -471,6 +474,25 @@ class FakeStorage:
         if key not in self.uploaded:
             return None
         return self.object_metadata.get(key, {})
+
+    def create_multipart_upload(self, key, *, content_type=None):
+        upload_id = f"upload-{self._next_upload_id}"
+        self._next_upload_id += 1
+        self.multipart_uploads[upload_id] = key
+        return upload_id
+
+    def presign_part(self, key, upload_id, part_number):
+        return f"https://upload.test/{key}?partNumber={part_number}&uploadId={upload_id}"
+
+    def complete_multipart_upload(self, key, upload_id, parts):
+        # A real completion would sum part sizes; tests set `uploaded`
+        # directly to whatever total they want to assert on.
+        self.uploaded.setdefault(key, 0)
+        self.multipart_uploads.pop(upload_id, None)
+
+    def abort_multipart_upload(self, key, upload_id):
+        self.aborted_multipart_uploads.append(upload_id)
+        self.multipart_uploads.pop(upload_id, None)
 
 
 class FakeRefreshTokenRepository:

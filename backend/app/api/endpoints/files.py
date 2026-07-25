@@ -17,13 +17,17 @@ from app.core.config import settings
 from app.models.user import UserInDB
 from app.repositories.item_repository import DEFAULT_PAGE_SIZE, DEFAULT_SORT, SORT_SPECS
 from app.schemas.files import (
+    AbortMultipartUploadRequest,
     BulkItemsRequest,
     BulkResultResponse,
     CategoryUsage,
+    CompleteMultipartUploadRequest,
     CreateFolderRequest,
     DownloadUrlResponse,
     GeoPhoto,
     GeoPhotosResponse,
+    InitiateMultipartUploadRequest,
+    InitiateMultipartUploadResponse,
     ItemGroup,
     ItemGroupsResponse,
     ItemResponse,
@@ -288,6 +292,31 @@ async def request_upload_url(
     )
 
 
+@router.post(
+    "/upload-url/multipart",
+    response_model=InitiateMultipartUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def initiate_multipart_upload(
+    payload: InitiateMultipartUploadRequest,
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> InitiateMultipartUploadResponse:
+    """Large-file variant of /upload-url: the browser PUTs each part to
+    its own presigned URL, then calls /complete-multipart with the
+    resulting ETags. One flaky part can be retried instead of restarting
+    a multi-gigabyte upload from zero."""
+    item, upload_id, part_urls = await files.start_multipart_upload(
+        user.id, payload.name, payload.parent_id, payload.content_type, payload.part_count
+    )
+    return InitiateMultipartUploadResponse(
+        item=ItemResponse.from_item(item),
+        upload_id=upload_id,
+        part_urls=part_urls,
+        expires_in=settings.PRESIGNED_URL_EXPIRE_SECONDS,
+    )
+
+
 # --- batch operations --------------------------------------------------
 
 
@@ -380,6 +409,32 @@ async def complete_upload(
 ) -> ItemResponse:
     item = await files.complete_upload(user.id, item_id)
     return ItemResponse.from_item(item)
+
+
+@router.post("/{item_id}/complete-multipart", response_model=ItemResponse)
+async def complete_multipart_upload(
+    item_id: str,
+    payload: CompleteMultipartUploadRequest,
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> ItemResponse:
+    item = await files.complete_multipart_upload(
+        user.id,
+        item_id,
+        payload.upload_id,
+        [(p.part_number, p.etag) for p in payload.parts],
+    )
+    return ItemResponse.from_item(item)
+
+
+@router.post("/{item_id}/abort-multipart", status_code=status.HTTP_204_NO_CONTENT)
+async def abort_multipart_upload(
+    item_id: str,
+    payload: AbortMultipartUploadRequest,
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> None:
+    await files.abort_multipart_upload(user.id, item_id, payload.upload_id)
 
 
 @router.post("/{item_id}/replace-upload-url", response_model=ReplaceUploadUrlResponse)

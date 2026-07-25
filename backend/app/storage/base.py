@@ -39,3 +39,28 @@ class ObjectStorage(ABC):
     def metadata(self, key: str) -> dict[str, str] | None:
         """User-supplied object metadata (e.g. the thumbnailer's
         perceptual hash), or None if the object is absent."""
+
+    # --- multipart upload (large files) ---------------------------------
+    #
+    # Same "browser talks to S3 directly" principle as upload_url/
+    # download_url, just split into parts so a single flaky part can be
+    # retried instead of restarting a multi-gigabyte PUT from zero.
+
+    @abstractmethod
+    def create_multipart_upload(self, key: str, *, content_type: str | None = None) -> str:
+        """Begin a multipart upload, returning its upload id."""
+
+    @abstractmethod
+    def presign_part(self, key: str, upload_id: str, part_number: int) -> str:
+        """Presigned URL the browser can PUT one part's bytes to."""
+
+    @abstractmethod
+    def complete_multipart_upload(
+        self, key: str, upload_id: str, parts: list[tuple[int, str]]
+    ) -> None:
+        """Assemble the parts into the final object. `parts` is
+        (part_number, etag) pairs, as returned by each part's PUT."""
+
+    @abstractmethod
+    def abort_multipart_upload(self, key: str, upload_id: str) -> None:
+        """Cancel an in-progress multipart upload and free its parts."""
