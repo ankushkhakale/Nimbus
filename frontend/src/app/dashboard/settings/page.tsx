@@ -35,8 +35,17 @@ const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: "about", label: "About", icon: <Cloud size={16} /> },
 ];
 
+const VALID_TABS: Tab[] = ["profile", "storage", "security", "preferences", "about"];
+
 export default function SettingsPage() {
-  const [tab, setTab] = useState<Tab>("profile");
+  // Honour ?tab=… so deep links (e.g. the storage banner's "Settings"
+  // button) land on the right section. Read once, lazily, to avoid
+  // touching window during the static-export SSR pass.
+  const [tab, setTab] = useState<Tab>(() => {
+    if (typeof window === "undefined") return "profile";
+    const requested = new URLSearchParams(window.location.search).get("tab");
+    return (VALID_TABS as string[]).includes(requested ?? "") ? (requested as Tab) : "profile";
+  });
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--surface-app, var(--surface-1))" }}>

@@ -60,6 +60,7 @@ import { MapView } from "./MapView";
 import { OnThisDay } from "./OnThisDay";
 import { PhotoGrid } from "./PhotoGrid";
 import { SearchFilterPanel } from "./SearchFilterPanel";
+import { StorageBanner } from "./StorageBanner";
 import { StorageWidget } from "./StorageWidget";
 
 const SORT_LABELS: Record<SortKey, string> = {
@@ -533,6 +534,10 @@ export function FileBrowser() {
         />
 
         <div style={{ padding: "24px clamp(16px, 4vw, 40px)", width: "100%", maxWidth: 1600, margin: "0 auto" }}>
+          {view !== "trash" && (
+            <StorageBanner usage={usage} onOpenTrash={() => b.setView("trash")} />
+          )}
+
           {view === "files" && !b.query && <Breadcrumbs browser={b} />}
 
           {view === "files" && !b.query && b.trail.length === 1 && (
