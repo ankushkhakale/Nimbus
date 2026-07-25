@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, EmailStr, Field
 
 
@@ -61,3 +63,15 @@ class ChangePasswordRequest(BaseModel):
     # endpoint enforces that, not this schema.
     current_password: str | None = None
     new_password: str = Field(min_length=8, max_length=72)
+
+
+class LoginActivityResponse(BaseModel):
+    id: str
+    method: str
+    ip: str | None
+    user_agent: str | None
+    created_at: datetime
+
+
+class LoginActivityListResponse(BaseModel):
+    logins: list[LoginActivityResponse]

@@ -1,16 +1,23 @@
 import logging
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 
 from app.api.csrf import require_trusted_origin
-from app.api.deps import get_auth_service, get_current_user
+from app.api.deps import (
+    get_auth_service,
+    get_current_user,
+    get_login_activity_repository,
+)
 from app.core.config import settings
 from app.models.user import UserInDB
+from app.repositories.login_activity_repository import LoginActivityRepository
 from app.schemas.auth import (
     AuthConfigResponse,
     ChangePasswordRequest,
     ForgotPasswordRequest,
+    LoginActivityListResponse,
+    LoginActivityResponse,
     LoginRequest,
     OAuthCallbackRequest,
     RegisterRequest,
@@ -20,6 +27,30 @@ from app.schemas.auth import (
 )
 from app.services import oauth_service
 from app.services.auth_service import AuthService
+
+
+def _client_ip(request: Request) -> str | None:
+    """Best-effort client IP. Behind API Gateway the real client is the
+    first hop of X-Forwarded-For; request.client is the proxy."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else None
+
+
+async def _record_login(
+    logins: LoginActivityRepository, user: UserInDB, method: str, request: Request
+) -> None:
+    """Never let an audit-log write break sign-in itself."""
+    try:
+        await logins.record(
+            user.id,
+            method,
+            ip=_client_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        )
+    except Exception:  # pragma: no cover - best effort
+        logger.exception("Failed recording login activity for %s", user.id)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -91,12 +122,37 @@ async def register(
 @router.post("/login", response_model=TokenResponse)
 async def login(
     payload: LoginRequest,
+    request: Request,
     response: Response,
     auth_service: AuthService = Depends(get_auth_service),
+    logins: LoginActivityRepository = Depends(get_login_activity_repository),
 ) -> TokenResponse:
     user = await auth_service.authenticate(payload.email, payload.password)
+    await _record_login(logins, user, "password", request)
     _set_refresh_cookie(response, await auth_service.issue_refresh_token(user))
     return TokenResponse(access_token=AuthService.issue_token(user))
+
+
+@router.get("/login-activity", response_model=LoginActivityListResponse)
+async def read_login_activity(
+    user: UserInDB = Depends(get_current_user),
+    logins: LoginActivityRepository = Depends(get_login_activity_repository),
+) -> LoginActivityListResponse:
+    """Recent successful sign-ins for this account, newest first — the
+    "was this me?" security affordance in Settings."""
+    entries = await logins.list_for_user(user.id)
+    return LoginActivityListResponse(
+        logins=[
+            LoginActivityResponse(
+                id=e.id,
+                method=e.method,
+                ip=e.ip,
+                user_agent=e.user_agent,
+                created_at=e.created_at,
+            )
+            for e in entries
+        ]
+    )
 
 
 @router.get("/config", response_model=AuthConfigResponse)
@@ -125,8 +181,10 @@ def _validate_redirect_uri(redirect_uri: str) -> None:
 async def oauth_callback(
     provider: str,
     payload: OAuthCallbackRequest,
+    request: Request,
     response: Response,
     auth_service: AuthService = Depends(get_auth_service),
+    logins: LoginActivityRepository = Depends(get_login_activity_repository),
 ) -> TokenResponse:
     """Complete an OAuth sign-in.
 
@@ -141,6 +199,7 @@ async def oauth_callback(
     user = await auth_service.sign_in_with_oauth(
         identity.email, identity.full_name, identity.provider
     )
+    await _record_login(logins, user, identity.provider, request)
     _set_refresh_cookie(response, await auth_service.issue_refresh_token(user))
     return TokenResponse(access_token=AuthService.issue_token(user))
 

@@ -174,6 +174,14 @@ export interface SignedUrl {
   is_thumbnail: boolean;
 }
 
+export interface Activity {
+  id: string;
+  action: string;
+  item_name: string | null;
+  detail: string | null;
+  created_at: string;
+}
+
 // --- auth ----------------------------------------------------------------
 
 export const auth = {
@@ -237,7 +245,20 @@ export const auth = {
    * also call `logout()` locally right after this succeeds. */
   signOutEverywhere: (token: string) =>
     request<void>("/auth/me/sign-out-everywhere", { method: "POST", token }),
+
+  /** Recent successful sign-ins for this account, for the Settings
+   * security section. */
+  loginActivity: (token: string) =>
+    request<{ logins: LoginActivity[] }>("/auth/login-activity", { token }),
 };
+
+export interface LoginActivity {
+  id: string;
+  method: string;
+  ip: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
 
 // --- files ---------------------------------------------------------------
 
@@ -313,6 +334,10 @@ export const files = {
 
   /** Photos taken on today's month and day in a previous year. */
   onThisDay: (token: string) => request<Item[]>("/files/on-this-day", { token }),
+
+  /** Recent things that happened to this user's files. */
+  activity: (token: string) =>
+    request<{ activity: Activity[] }>("/files/activity", { token }),
 
   /** Every starred item, file or folder, regardless of where it lives. */
   starred: (token: string, opts: { offset?: number; limit?: number } = {}) =>

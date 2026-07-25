@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -8,14 +8,15 @@ import {
   ExternalLink,
   HardDrive,
   Key,
+  Monitor,
   Sliders,
   User as UserIcon,
 } from "lucide-react";
 
 import { useAuth, errorMessage } from "@/lib/auth-context";
-import { auth as authApi } from "@/lib/api";
+import { LoginActivity, auth as authApi } from "@/lib/api";
 import { FormError } from "@/components/FormError";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, formatRelativeDate } from "@/lib/format";
 import {
   getDefaultView,
   getReducedMotionOverride,
@@ -104,6 +105,7 @@ export default function SettingsPage() {
         {tab === "security" && (
           <>
             <SecurityTab />
+            <LoginActivityCard />
             <SignOutEverywhereCard />
           </>
         )}
@@ -441,6 +443,86 @@ function SignOutEverywhereCard() {
       >
         {submitting ? "Signing out…" : "Sign out everywhere"}
       </button>
+    </div>
+  );
+}
+
+function shortenUserAgent(ua: string | null): string {
+  if (!ua) return "Unknown device";
+  // Just enough to recognise a device without parsing the whole string.
+  const browser =
+    /Edg/.test(ua) ? "Edge" :
+    /Chrome/.test(ua) ? "Chrome" :
+    /Firefox/.test(ua) ? "Firefox" :
+    /Safari/.test(ua) ? "Safari" :
+    "Browser";
+  const os =
+    /Windows/.test(ua) ? "Windows" :
+    /Mac OS/.test(ua) ? "macOS" :
+    /Android/.test(ua) ? "Android" :
+    /iPhone|iPad/.test(ua) ? "iOS" :
+    /Linux/.test(ua) ? "Linux" :
+    "";
+  return os ? `${browser} on ${os}` : browser;
+}
+
+function LoginActivityCard() {
+  const { token } = useAuth();
+  const [logins, setLogins] = useState<LoginActivity[] | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    let active = true;
+    authApi
+      .loginActivity(token)
+      .then(({ logins: l }) => active && setLogins(l))
+      .catch(() => active && setLogins([]));
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
+  return (
+    <div className="card" style={{ padding: 24, marginTop: 20 }}>
+      <h2 style={{ fontSize: 16, marginBottom: 4 }}>Recent sign-ins</h2>
+      <p style={{ fontSize: 13, color: "var(--text-med)", marginBottom: 20 }}>
+        The last few times this account signed in. If you see one you don&apos;t recognise,
+        change your password and sign out everywhere.
+      </p>
+      {logins === null ? (
+        <p style={{ fontSize: 13, color: "var(--text-med)" }}>Loading…</p>
+      ) : logins.length === 0 ? (
+        <p style={{ fontSize: 13, color: "var(--text-med)" }}>No recent sign-ins recorded.</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {logins.map((login) => (
+            <div
+              key={login.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "10px 12px",
+                border: "1px solid var(--hairline)",
+                borderRadius: "var(--radius-md)",
+              }}
+            >
+              <Monitor size={16} color="var(--text-med)" style={{ flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 14, fontWeight: 600 }}>
+                  {shortenUserAgent(login.user_agent)}
+                  <span style={{ fontWeight: 400, color: "var(--text-low)" }}>
+                    {" "}· via {login.method}
+                  </span>
+                </p>
+                <p style={{ fontSize: 12, color: "var(--text-med)" }}>
+                  {login.ip ?? "unknown IP"} · {formatRelativeDate(login.created_at)}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
