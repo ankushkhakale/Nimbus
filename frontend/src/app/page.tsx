@@ -125,7 +125,7 @@ function Hero() {
         <div className="animate-fade-in-up">
           <span className="badge" style={{ marginBottom: 24 }}>
             <ShieldCheck size={14} color="var(--primary)" />
-            Apache&nbsp;2.0 · free to self-host
+            Free to run · Apache&nbsp;2.0
           </span>
 
           <h1
@@ -153,10 +153,11 @@ function Hero() {
             }}
           >
             Nimbus is a self-hosted replacement for Drive and Photos. Deploy it
-            into your own AWS account and it runs on free-tier infrastructure
-            by design — file contents travel straight from your browser to
-            your S3 bucket, with no subscription and no third party holding
-            your data.
+            into your own AWS account and it runs on AWS&rsquo;s free tier by
+            design — compute, the API, and the database cost nothing at
+            personal scale, and the free credits AWS hands new accounts
+            comfortably cover years of storage on top. No subscription, no
+            third party holding your data.
           </p>
 
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -253,7 +254,7 @@ function TerminalCard() {
 const STATS = [
   { value: "₹0", label: "subscription — no account with us, because there is no us" },
   { value: "₹0", label: "for compute, the API, and the database — all free-tier" },
-  { value: "11×9", label: "S3 object durability" },
+  { value: "~5 yrs", label: "of 90GB storage from a typical AWS signup credit" },
   { value: "0", label: "servers to patch or keep running" },
 ];
 
@@ -426,22 +427,25 @@ function WhatItDoes() {
 
 const NOT_BUILT = [
   "Share links and multi-user collaboration",
-  "A mobile app — the web UI is responsive, but that is all",
-  "File versioning and a trash bin",
+  "A native mobile app — the web UI is responsive, but that's all today",
+  "File versioning",
   "Full-text or semantic search across file contents",
 ];
 
 /**
- * Stating the gaps plainly is worth more than padding the feature list.
- * The previous page advertised three of these four as if they shipped.
+ * Framed as a roadmap rather than a list of gaps, but the substance is
+ * unchanged: only things genuinely not built appear here. Trash/restore
+ * shipped a while back and was removed from this list for that reason —
+ * stating gaps plainly, accurately, is worth more than padding the
+ * feature list or leaving stale claims in place.
  */
 function NotYetBuilt() {
   return (
     <section className="container section" style={{ paddingTop: 0 }}>
       <div className="card" style={{ padding: 40 }}>
-        <p className="eyebrow" style={{ marginBottom: 16 }}>Not built yet</p>
+        <p className="eyebrow" style={{ marginBottom: 16 }}>Roadmap</p>
         <h2 style={{ fontSize: 24, letterSpacing: "-0.02em", marginBottom: 20 }}>
-          Things Nimbus does not do
+          What&rsquo;s next for Nimbus
         </h2>
         <ul
           style={{
