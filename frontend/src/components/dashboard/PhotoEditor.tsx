@@ -424,7 +424,7 @@ export function PhotoEditor({
       <ConfirmModal
         open={confirmOpen}
         title="Save changes?"
-        body="This replaces the original file. There's no version history yet, so this can't be undone."
+        body="This replaces the current image. The original is kept in the file's version history, so you can restore it later."
         confirmLabel={saving ? "Saving…" : "Save"}
         destructive
         onCancel={() => setConfirmOpen(false)}

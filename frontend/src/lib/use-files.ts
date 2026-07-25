@@ -266,6 +266,20 @@ export function useFiles() {
     [token, reload]
   );
 
+  const renameMany = useCallback(
+    async (renames: { id: string; name: string }[]) => {
+      if (!token || renames.length === 0) return;
+      // Sequential rather than parallel: the server appends " (2)" on a
+      // name collision, and processing in order keeps the numbering the
+      // user previewed instead of racing.
+      for (const r of renames) {
+        await filesApi.update(token, r.id, { name: r.name });
+      }
+      await reload();
+    },
+    [token, reload]
+  );
+
   const moveTo = useCallback(
     async (itemIds: string[], parentId: string | null) => {
       if (!token || itemIds.length === 0) return;
@@ -515,6 +529,7 @@ export function useFiles() {
     // mutations
     createFolder,
     rename,
+    renameMany,
     setColor,
     toggleStarred,
     moveTo,
