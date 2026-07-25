@@ -108,6 +108,9 @@ export interface TokenResponse {
 export type ItemType = "file" | "folder";
 export type UploadStatus = "pending" | "ready";
 
+/** Fixed palette — must match ALLOWED_ITEM_COLORS in the backend schema. */
+export type ItemColor = "yellow" | "blue" | "green" | "red" | "purple" | "pink" | "gray";
+
 export interface Item {
   id: string;
   name: string;
@@ -117,6 +120,8 @@ export interface Item {
   content_type: string | null;
   status: UploadStatus | null;
   taken_at: string | null;
+  starred: boolean;
+  color: ItemColor | null;
   created_at: string;
   updated_at: string;
   /** Set when the item is in the trash. */
@@ -285,6 +290,26 @@ export const files = {
   /** Photos taken on today's month and day in a previous year. */
   onThisDay: (token: string) => request<Item[]>("/files/on-this-day", { token }),
 
+  /** Every starred item, file or folder, regardless of where it lives. */
+  starred: (token: string, opts: { offset?: number; limit?: number } = {}) =>
+    request<Page<Item>>(`/files/starred${qs({ offset: opts.offset, limit: opts.limit })}`, {
+      token,
+    }),
+
+  star: (token: string, itemIds: string[]) =>
+    request<{ affected: number }>("/files/star", {
+      method: "POST",
+      body: { item_ids: itemIds },
+      token,
+    }),
+
+  unstar: (token: string, itemIds: string[]) =>
+    request<{ affected: number }>("/files/unstar", {
+      method: "POST",
+      body: { item_ids: itemIds },
+      token,
+    }),
+
   trash: (token: string, opts: { offset?: number; limit?: number } = {}) =>
     request<Page<Item>>(`/files/trash${qs({ offset: opts.offset, limit: opts.limit })}`, {
       token,
@@ -368,8 +393,11 @@ export const files = {
       { token }
     ),
 
-  update: (token: string, itemId: string, changes: { name?: string; parent_id?: string | null }) =>
-    request<Item>(`/files/${itemId}`, { method: "PATCH", body: changes, token }),
+  update: (
+    token: string,
+    itemId: string,
+    changes: { name?: string; parent_id?: string | null; color?: ItemColor | null }
+  ) => request<Item>(`/files/${itemId}`, { method: "PATCH", body: changes, token }),
 
   remove: (token: string, itemId: string) =>
     request<void>(`/files/${itemId}`, { method: "DELETE", token }),

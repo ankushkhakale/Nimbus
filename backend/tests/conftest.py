@@ -269,7 +269,9 @@ class FakeItemRepository:
         self._items[item_id] = updated
         return updated
 
-    async def rename_or_move(self, user_id, item_id, *, name, parent_id, move) -> Item | None:
+    async def rename_or_move(
+        self, user_id, item_id, *, name, parent_id, move, set_color=False, color=None
+    ) -> Item | None:
         item = await self.get(user_id, item_id)
         if item is None:
             return None
@@ -278,9 +280,28 @@ class FakeItemRepository:
             changes["name"] = name
         if move:
             changes["parent_id"] = parent_id
+        if set_color:
+            changes["color"] = color
         updated = item.model_copy(update=changes)
         self._items[item_id] = updated
         return updated
+
+    async def set_starred(self, user_id: str, item_ids: list[str], starred: bool) -> int:
+        count = 0
+        for item_id in item_ids:
+            item = await self.get(user_id, item_id)
+            if item is None:
+                continue
+            self._items[item_id] = item.model_copy(update={"starred": starred})
+            count += 1
+        return count
+
+    async def list_starred(
+        self, user_id: str, *, offset: int = 0, limit: int = 100
+    ) -> tuple[list[Item], int]:
+        starred = [i for i in self._mine(user_id) if i.starred]
+        starred.sort(key=lambda i: i.updated_at, reverse=True)
+        return starred[offset : offset + limit], len(starred)
 
     async def usage(self, user_id: str) -> tuple[int, int, int]:
         mine = self._mine(user_id)

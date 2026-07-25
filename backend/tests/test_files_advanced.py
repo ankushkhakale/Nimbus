@@ -428,3 +428,99 @@ def test_on_this_day_is_isolated_per_user(client, auth_headers, fake_storage, fa
     _set_taken_at(fake_item_repo, item, today.replace(year=today.year - 1))
 
     assert client.get(f"{FILES}/on-this-day", headers=b).json() == []
+
+
+# --- starred items ----------------------------------------------------------
+
+def test_star_and_unstar_a_file(client, auth_headers, fake_storage, fake_item_repo):
+    h = auth_headers()
+    item = _ready_file(client, h, fake_storage, fake_item_repo, "a.txt")
+
+    star = client.post(f"{FILES}/star", json={"item_ids": [item]}, headers=h)
+    assert star.status_code == 200
+    assert star.json()["affected"] == 1
+    assert client.get(FILES, headers=h).json()["items"][0]["starred"] is True
+
+    unstar = client.post(f"{FILES}/unstar", json={"item_ids": [item]}, headers=h)
+    assert unstar.status_code == 200
+    assert unstar.json()["affected"] == 1
+    assert client.get(FILES, headers=h).json()["items"][0]["starred"] is False
+
+
+def test_starring_a_folder_works_too(client, auth_headers):
+    h = auth_headers()
+    folder = _folder(client, h, "Album")
+    resp = client.post(f"{FILES}/star", json={"item_ids": [folder]}, headers=h)
+    assert resp.json()["affected"] == 1
+
+
+def test_starred_view_spans_files_and_folders_across_the_tree(
+    client, auth_headers, fake_storage, fake_item_repo
+):
+    h = auth_headers()
+    album = _folder(client, h, "Album")
+    nested_file = _ready_file(client, h, fake_storage, fake_item_repo, "deep.txt", album)
+    root_file = _ready_file(client, h, fake_storage, fake_item_repo, "root.txt")
+    unstarred = _ready_file(client, h, fake_storage, fake_item_repo, "plain.txt")
+
+    client.post(f"{FILES}/star", json={"item_ids": [album, nested_file, root_file]}, headers=h)
+
+    body = client.get(f"{FILES}/starred", headers=h).json()
+    assert body["total"] == 3
+    starred_ids = {i["id"] for i in body["items"]}
+    assert starred_ids == {album, nested_file, root_file}
+    assert unstarred not in starred_ids
+
+
+def test_starred_items_are_isolated_per_user(client, auth_headers, fake_storage, fake_item_repo):
+    a = auth_headers("a@example.com")
+    b = auth_headers("b@example.com")
+    item = _ready_file(client, a, fake_storage, fake_item_repo, "mine.txt")
+    client.post(f"{FILES}/star", json={"item_ids": [item]}, headers=a)
+    assert client.get(f"{FILES}/starred", headers=b).json()["total"] == 0
+
+
+def test_star_skips_other_users_items_without_failing_the_batch(
+    client, auth_headers, fake_storage, fake_item_repo
+):
+    a = auth_headers("a@example.com")
+    b = auth_headers("b@example.com")
+    theirs = _ready_file(client, a, fake_storage, fake_item_repo, "theirs.txt")
+    mine = _ready_file(client, b, fake_storage, fake_item_repo, "mine.txt")
+
+    resp = client.post(f"{FILES}/star", json={"item_ids": [mine, theirs]}, headers=b)
+    assert resp.json()["affected"] == 1
+    assert client.get(f"{FILES}/starred", headers=a).json()["total"] == 0
+
+
+# --- folder / item color -----------------------------------------------------
+
+def test_set_and_clear_item_color(client, auth_headers):
+    h = auth_headers()
+    folder = _folder(client, h, "Album")
+
+    resp = client.patch(f"{FILES}/{folder}", json={"color": "blue"}, headers=h)
+    assert resp.status_code == 200
+    assert resp.json()["color"] == "blue"
+
+    cleared = client.patch(f"{FILES}/{folder}", json={"color": None}, headers=h)
+    assert cleared.json()["color"] is None
+
+
+def test_color_not_sent_leaves_existing_value_untouched(client, auth_headers):
+    h = auth_headers()
+    folder = _folder(client, h, "Album")
+    client.patch(f"{FILES}/{folder}", json={"color": "green"}, headers=h)
+
+    renamed = client.patch(f"{FILES}/{folder}", json={"name": "Renamed"}, headers=h)
+    assert renamed.json()["color"] == "green"
+    assert renamed.json()["name"] == "Renamed"
+
+
+def test_color_rejects_values_outside_the_fixed_palette(client, auth_headers):
+    h = auth_headers()
+    folder = _folder(client, h, "Album")
+    resp = client.patch(
+        f"{FILES}/{folder}", json={"color": "javascript:alert(1)"}, headers=h
+    )
+    assert resp.status_code == 422

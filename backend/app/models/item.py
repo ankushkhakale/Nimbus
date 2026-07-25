@@ -41,6 +41,12 @@ class Item(BaseModel):
     # Photos-style date grid sorts on this, not on upload time.
     taken_at: datetime | None = None
 
+    # Cosmetic organisation, not permissions — anyone who can see the item
+    # can star or recolor it. `color` is validated against a fixed palette
+    # (see schemas/files.py) so it can go straight into inline CSS.
+    starred: bool = False
+    color: str | None = None
+
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
