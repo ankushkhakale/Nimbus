@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 
 import { useAuth, errorMessage } from "@/lib/auth-context";
-import { LoginActivity, auth as authApi } from "@/lib/api";
+import { LoginActivity, Session, auth as authApi } from "@/lib/api";
 import { FormError } from "@/components/FormError";
 import { formatBytes, formatRelativeDate } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
@@ -121,6 +121,7 @@ export default function SettingsPage() {
         {tab === "security" && (
           <>
             <SecurityTab />
+            <SessionsCard />
             <LoginActivityCard />
             <SignOutEverywhereCard />
           </>
@@ -480,6 +481,90 @@ function shortenUserAgent(ua: string | null): string {
     /Linux/.test(ua) ? "Linux" :
     "";
   return os ? `${browser} on ${os}` : browser;
+}
+
+function SessionsCard() {
+  const { token } = useAuth();
+  const [sessions, setSessions] = useState<Session[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const reload = () => {
+    if (!token) return;
+    authApi
+      .sessions(token)
+      .then(({ sessions: s }) => setSessions(s))
+      .catch(() => setSessions([]));
+  };
+
+  useEffect(() => {
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const handleRevoke = async (session: Session) => {
+    if (!token) return;
+    setBusy(session.id);
+    try {
+      await authApi.revokeSession(token, session.id);
+      reload();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="card" style={{ padding: 24, marginTop: 20 }}>
+      <h2 style={{ fontSize: 16, marginBottom: 4 }}>Active sessions</h2>
+      <p style={{ fontSize: 13, color: "var(--text-med)", marginBottom: 20 }}>
+        Devices currently signed in to this account. Sign out any you don&apos;t recognise.
+      </p>
+      {sessions === null ? (
+        <p style={{ fontSize: 13, color: "var(--text-med)" }}>Loading…</p>
+      ) : sessions.length === 0 ? (
+        <p style={{ fontSize: 13, color: "var(--text-med)" }}>No active sessions.</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {sessions.map((session) => (
+            <div
+              key={session.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "10px 12px",
+                border: "1px solid var(--hairline)",
+                borderRadius: "var(--radius-md)",
+              }}
+            >
+              <Monitor size={16} color="var(--text-med)" style={{ flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 14, fontWeight: 600 }}>
+                  {shortenUserAgent(session.user_agent)}
+                  {session.current && (
+                    <span style={{ fontWeight: 400, color: "var(--primary)" }}> · This device</span>
+                  )}
+                </p>
+                <p style={{ fontSize: 12, color: "var(--text-med)" }}>
+                  {session.ip ?? "unknown IP"} · active {formatRelativeDate(session.last_active)}
+                </p>
+              </div>
+              {!session.current && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => void handleRevoke(session)}
+                  disabled={busy === session.id}
+                  style={{ color: "var(--error)", flexShrink: 0 }}
+                >
+                  {busy === session.id ? "Signing out…" : "Sign out"}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function LoginActivityCard() {
