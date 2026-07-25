@@ -35,7 +35,6 @@ export default function LandingPage() {
         <StatBand />
         <HowItWorks />
         <WhatItDoes />
-        <CostBreakdown />
         <NotYetBuilt />
         <CtaBand />
       </main>
@@ -89,7 +88,6 @@ function SiteHeader() {
         >
           <a href="#how" style={{ color: "var(--text-med)" }}>How it works</a>
           <a href="#features" style={{ color: "var(--text-med)" }}>Features</a>
-          <a href="#cost" style={{ color: "var(--text-med)" }}>Cost</a>
           <a href={GITHUB_URL} target="_blank" rel="noreferrer" style={{ color: "var(--text-med)" }}>
             GitHub
           </a>
@@ -127,7 +125,7 @@ function Hero() {
         <div className="animate-fade-in-up">
           <span className="badge" style={{ marginBottom: 24 }}>
             <ShieldCheck size={14} color="var(--primary)" />
-            Apache&nbsp;2.0 · runs in your own AWS account
+            Free to run · Apache&nbsp;2.0
           </span>
 
           <h1
@@ -140,9 +138,9 @@ function Hero() {
           >
             Your files.
             <br />
-            Your bucket.
+            Your photos.
             <br />
-            <span style={{ color: "var(--primary)" }}>About ₹200 a month.</span>
+            <span style={{ color: "var(--primary)" }}>Free storage, your cloud.</span>
           </h1>
 
           <p
@@ -154,10 +152,12 @@ function Hero() {
               marginBottom: 32,
             }}
           >
-            Nimbus is a self-hosted replacement for Drive and Photos. It deploys
-            into an AWS account you control, and file contents travel straight
-            from your browser to your S3 bucket — the API only ever handles
-            metadata.
+            Nimbus is a self-hosted replacement for Drive and Photos. Deploy it
+            into your own AWS account and it runs on AWS&rsquo;s free tier by
+            design — compute, the API, and the database cost nothing at
+            personal scale, and the free credits AWS hands new accounts
+            comfortably cover years of storage on top. No subscription, no
+            third party holding your data.
           </p>
 
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -252,9 +252,9 @@ function TerminalCard() {
 /* ------------------------------------------------------------------ */
 
 const STATS = [
-  { value: "₹200", label: "a month for 90 GB on S3 Standard" },
-  { value: "₹0", label: "while idle — serverless bills per request" },
-  { value: "11×9", label: "S3 object durability" },
+  { value: "₹0", label: "subscription — no account with us, because there is no us" },
+  { value: "₹0", label: "for compute, the API, and the database — all free-tier" },
+  { value: "~5 yrs", label: "of 90GB storage from a typical AWS signup credit" },
   { value: "0", label: "servers to patch or keep running" },
 ];
 
@@ -425,118 +425,27 @@ function WhatItDoes() {
 
 /* ------------------------------------------------------------------ */
 
-const COST_ROWS: [string, string, string][] = [
-  ["S3 Standard storage", "90 GB", "≈ ₹202"],
-  ["Lambda", "1M requests + 400,000 GB-s free", "₹0"],
-  ["API Gateway", "first 1M requests free", "₹0"],
-  ["MongoDB Atlas M0", "512 MB, free tier", "₹0"],
-  ["Internet egress", "first 100 GB/month free", "₹0"],
-];
-
-function CostBreakdown() {
-  return (
-    <section id="cost" className="container section" style={{ paddingTop: 0 }}>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-          gap: 48,
-          alignItems: "start",
-        }}
-      >
-        <div>
-          <p className="eyebrow" style={{ marginBottom: 16 }}>Cost</p>
-          <h2
-            style={{
-              fontSize: "clamp(30px, 4vw, 40px)",
-              letterSpacing: "-0.035em",
-              marginBottom: 20,
-            }}
-          >
-            Storage is the only line that costs anything.
-          </h2>
-          <p style={{ fontSize: 16, color: "var(--text-body)", maxWidth: 460 }}>
-            Everything else fits inside a permanently free tier at personal
-            scale. There is no subscription and no margin on top — you are
-            paying AWS directly for durable storage, and nothing else.
-          </p>
-        </div>
-
-        <div className="card" style={{ padding: 8 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14.5 }}>
-            <tbody>
-              {COST_ROWS.map(([service, detail, price]) => (
-                <tr key={service} style={{ borderBottom: "1px solid var(--hairline)" }}>
-                  <td style={{ padding: "16px 16px 16px 20px" }}>
-                    <div style={{ color: "var(--text-high)", fontWeight: 500 }}>{service}</div>
-                    <div style={{ color: "var(--text-med)", fontSize: 13, marginTop: 2 }}>
-                      {detail}
-                    </div>
-                  </td>
-                  <td
-                    style={{
-                      padding: "16px 20px 16px 16px",
-                      textAlign: "right",
-                      whiteSpace: "nowrap",
-                      fontFamily: "var(--font-mono)",
-                      color: price === "₹0" ? "var(--text-med)" : "var(--text-high)",
-                    }}
-                  >
-                    {price}
-                  </td>
-                </tr>
-              ))}
-              <tr>
-                <td style={{ padding: "18px 16px 18px 20px", fontWeight: 600, color: "var(--text-high)" }}>
-                  Total
-                </td>
-                <td
-                  style={{
-                    padding: "18px 20px 18px 16px",
-                    textAlign: "right",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 18,
-                    fontWeight: 700,
-                    color: "var(--primary)",
-                  }}
-                >
-                  ≈ ₹202
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <p style={{ marginTop: 24, fontSize: 13, color: "var(--text-low)", maxWidth: 720 }}>
-        Based on AWS ap-south-1 list prices at $0.023 per GB-month, converted at
-        ₹96.3 to the dollar. Rates and exchange rates move; the bill arrives in
-        your own account, so check it against current pricing.
-      </p>
-    </section>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-
 const NOT_BUILT = [
   "Share links and multi-user collaboration",
-  "A mobile app — the web UI is responsive, but that is all",
-  "File versioning and a trash bin",
+  "A native mobile app — the web UI is responsive, but that's all today",
+  "File versioning",
   "Full-text or semantic search across file contents",
 ];
 
 /**
- * Stating the gaps plainly is worth more than padding the feature list.
- * The previous page advertised three of these four as if they shipped.
+ * Framed as a roadmap rather than a list of gaps, but the substance is
+ * unchanged: only things genuinely not built appear here. Trash/restore
+ * shipped a while back and was removed from this list for that reason —
+ * stating gaps plainly, accurately, is worth more than padding the
+ * feature list or leaving stale claims in place.
  */
 function NotYetBuilt() {
   return (
     <section className="container section" style={{ paddingTop: 0 }}>
       <div className="card" style={{ padding: 40 }}>
-        <p className="eyebrow" style={{ marginBottom: 16 }}>Not built yet</p>
+        <p className="eyebrow" style={{ marginBottom: 16 }}>Roadmap</p>
         <h2 style={{ fontSize: 24, letterSpacing: "-0.02em", marginBottom: 20 }}>
-          Things Nimbus does not do
+          What&rsquo;s next for Nimbus
         </h2>
         <ul
           style={{
@@ -658,7 +567,6 @@ function SiteFooter() {
         <div style={{ display: "flex", gap: 24, fontSize: 14, color: "var(--text-med)" }}>
           <a href="#how">How it works</a>
           <a href="#features">Features</a>
-          <a href="#cost">Cost</a>
           <a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a>
         </div>
       </div>
