@@ -83,3 +83,49 @@ class S3ObjectStorage(ObjectStorage):
             raise
         # boto3 already lower-cases and strips the x-amz-meta- prefix.
         return head.get("Metadata", {})
+
+    def create_multipart_upload(self, key: str, *, content_type: str | None = None) -> str:
+        params: dict = {"Bucket": self._bucket, "Key": key}
+        if content_type:
+            params["ContentType"] = content_type
+        response = self._client.create_multipart_upload(**params)
+        return response["UploadId"]
+
+    def presign_part(self, key: str, upload_id: str, part_number: int) -> str:
+        return self._client.generate_presigned_url(
+            "upload_part",
+            Params={
+                "Bucket": self._bucket,
+                "Key": key,
+                "UploadId": upload_id,
+                "PartNumber": part_number,
+            },
+            ExpiresIn=self._expires_in,
+        )
+
+    def complete_multipart_upload(
+        self, key: str, upload_id: str, parts: list[tuple[int, str]]
+    ) -> None:
+        self._client.complete_multipart_upload(
+            Bucket=self._bucket,
+            Key=key,
+            UploadId=upload_id,
+            MultipartUpload={
+                "Parts": [
+                    {"PartNumber": number, "ETag": etag}
+                    for number, etag in sorted(parts, key=lambda p: p[0])
+                ]
+            },
+        )
+
+    def abort_multipart_upload(self, key: str, upload_id: str) -> None:
+        try:
+            self._client.abort_multipart_upload(Bucket=self._bucket, Key=key, UploadId=upload_id)
+        except ClientError as exc:
+            # Already aborted/completed/expired — nothing left to clean up.
+            if exc.response.get("Error", {}).get("Code") not in {
+                "NoSuchUpload",
+                "404",
+                "NotFound",
+            }:
+                raise

@@ -220,6 +220,43 @@ class UploadUrlResponse(BaseModel):
     expires_in: int
 
 
+class InitiateMultipartUploadRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    parent_id: str | None = None
+    content_type: str | None = Field(default=None, max_length=255)
+    # How many parts the client intends to split the file into —
+    # decided client-side from the file's size and a fixed chunk size.
+    part_count: int = Field(ge=1, le=10_000)
+
+    @field_validator("name")
+    @classmethod
+    def check_name(cls, v: str) -> str:
+        return _validate_name(v)
+
+
+class InitiateMultipartUploadResponse(BaseModel):
+    item: ItemResponse
+    upload_id: str
+    # One presigned PUT URL per part, 1-indexed to match S3's PartNumber.
+    part_urls: list[str]
+    expires_in: int
+
+
+class MultipartPart(BaseModel):
+    part_number: int = Field(ge=1, le=10_000)
+    # Returned by S3 in the PUT response's ETag header for each part.
+    etag: str
+
+
+class CompleteMultipartUploadRequest(BaseModel):
+    upload_id: str
+    parts: list[MultipartPart] = Field(min_length=1, max_length=10_000)
+
+
+class AbortMultipartUploadRequest(BaseModel):
+    upload_id: str
+
+
 class DownloadUrlResponse(BaseModel):
     download_url: str
     expires_in: int

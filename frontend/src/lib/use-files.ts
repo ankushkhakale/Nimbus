@@ -17,6 +17,7 @@ import {
   SortKey,
   UsageDetail,
   files as filesApi,
+  uploadPartToS3,
   uploadToS3,
 } from "./api";
 import { useAuth } from "./auth-context";
@@ -53,6 +54,37 @@ export interface UploadProgress {
 
 const ROOT: Crumb = { id: null, name: "My Cloud" };
 const PAGE_SIZE = 60;
+
+// Files at or above this size go through multipart upload instead of a
+// single PUT, so a mid-upload network hiccup only costs one part's
+// worth of retrying rather than the whole file. 8MB comfortably clears
+// S3's 5MB-per-part minimum.
+const MULTIPART_THRESHOLD_BYTES = 8 * 1024 * 1024;
+const PART_SIZE_BYTES = 8 * 1024 * 1024;
+// How many parts to have in flight at once — enough to use the
+// connection well without opening so many requests that the browser or
+// network starts queuing them anyway.
+const PART_CONCURRENCY = 4;
+const PART_MAX_ATTEMPTS = 3;
+
+async function uploadPartWithRetry(
+  url: string,
+  blob: Blob,
+  onProgress: (fraction: number) => void
+): Promise<string> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= PART_MAX_ATTEMPTS; attempt++) {
+    try {
+      return await uploadPartToS3(url, blob, onProgress);
+    } catch (err) {
+      lastError = err;
+      if (attempt < PART_MAX_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+      }
+    }
+  }
+  throw lastError;
+}
 
 export function useFiles() {
   const { token } = useAuth();
@@ -302,6 +334,87 @@ export function useFiles() {
 
   // --- uploads --------------------------------------------------------
 
+  // Shared by both the flat upload() and uploadFolder(): everything
+  // about getting one File's bytes into one target folder, single-PUT
+  // or multipart depending on size. Doesn't reload or touch uploads
+  // beyond its own key's row — callers own that.
+  const uploadOne = useCallback(
+    async (file: File, parentId: string | null, key: string) => {
+      if (!token) return;
+      setUploads((u) => [...u, { key, name: file.name, progress: 0, status: "uploading" }]);
+      const setProgress = (fraction: number) =>
+        setUploads((u) => u.map((p) => (p.key === key ? { ...p, progress: fraction } : p)));
+
+      try {
+        const contentType = file.type || "application/octet-stream";
+
+        if (file.size < MULTIPART_THRESHOLD_BYTES) {
+          const { item, upload_url } = await filesApi.requestUploadUrl(
+            token,
+            file.name,
+            parentId,
+            contentType
+          );
+          // Straight to S3 — the bytes never pass through the API.
+          await uploadToS3(upload_url, file, contentType, setProgress);
+          // Only now does the server confirm the object and record size.
+          await filesApi.completeUpload(token, item.id);
+        } else {
+          const partCount = Math.ceil(file.size / PART_SIZE_BYTES);
+          const { item, upload_id, part_urls } = await filesApi.initiateMultipartUpload(
+            token,
+            file.name,
+            parentId,
+            contentType,
+            partCount
+          );
+
+          const partFractions = new Array<number>(partCount).fill(0);
+          const reportOverall = () =>
+            setProgress(partFractions.reduce((sum, f) => sum + f, 0) / partCount);
+          const parts: { part_number: number; etag: string }[] = new Array(partCount);
+
+          try {
+            let nextPart = 0;
+            const worker = async () => {
+              while (nextPart < partCount) {
+                const i = nextPart++;
+                const start = i * PART_SIZE_BYTES;
+                const blob = file.slice(start, Math.min(start + PART_SIZE_BYTES, file.size));
+                const etag = await uploadPartWithRetry(part_urls[i], blob, (fraction) => {
+                  partFractions[i] = fraction;
+                  reportOverall();
+                });
+                partFractions[i] = 1;
+                reportOverall();
+                parts[i] = { part_number: i + 1, etag };
+              }
+            };
+            await Promise.all(
+              Array.from({ length: Math.min(PART_CONCURRENCY, partCount) }, worker)
+            );
+            await filesApi.completeMultipartUpload(token, item.id, upload_id, parts);
+          } catch (err) {
+            await filesApi.abortMultipartUpload(token, item.id, upload_id).catch(() => {});
+            throw err;
+          }
+        }
+
+        setUploads((u) => u.map((p) => (p.key === key ? { ...p, progress: 1, status: "done" } : p)));
+        notify("Upload complete", file.name);
+      } catch (err) {
+        setUploads((u) =>
+          u.map((p) =>
+            p.key === key
+              ? { ...p, status: "error", error: err instanceof Error ? err.message : "Upload failed" }
+              : p
+          )
+        );
+      }
+    },
+    [token]
+  );
+
   const upload = useCallback(
     async (fileList: FileList | File[]) => {
       if (!token) return;
@@ -309,53 +422,58 @@ export function useFiles() {
       const parentId = current.id;
 
       await Promise.all(
-        chosen.map(async (file, index) => {
-          const key = `${index}-${file.name}-${file.size}`;
-          setUploads((u) => [
-            ...u,
-            { key, name: file.name, progress: 0, status: "uploading" },
-          ]);
-          try {
-            const contentType = file.type || "application/octet-stream";
-            const { item, upload_url } = await filesApi.requestUploadUrl(
-              token,
-              file.name,
-              parentId,
-              contentType
-            );
-            // Straight to S3 — the bytes never pass through the API.
-            await uploadToS3(upload_url, file, contentType, (fraction) =>
-              setUploads((u) =>
-                u.map((p) => (p.key === key ? { ...p, progress: fraction } : p))
-              )
-            );
-            // Only now does the server confirm the object and record size.
-            await filesApi.completeUpload(token, item.id);
-            setUploads((u) =>
-              u.map((p) => (p.key === key ? { ...p, progress: 1, status: "done" } : p))
-            );
-            notify("Upload complete", file.name);
-          } catch (err) {
-            setUploads((u) =>
-              u.map((p) =>
-                p.key === key
-                  ? {
-                      ...p,
-                      status: "error",
-                      error: err instanceof Error ? err.message : "Upload failed",
-                    }
-                  : p
-              )
-            );
-          }
-        })
+        chosen.map((file, index) => uploadOne(file, parentId, `${index}-${file.name}-${file.size}`))
       );
 
       await reload();
       // Clear finished rows shortly after, leaving failures on screen.
       setTimeout(() => setUploads((u) => u.filter((p) => p.status === "error")), 2500);
     },
-    [token, current.id, reload]
+    [token, current.id, reload, uploadOne]
+  );
+
+  // entries: { path, file }[] where path is the file's position relative
+  // to the dropped/picked folder root, e.g. "Album/Sub/photo.jpg" — the
+  // shape both the webkitdirectory input and the drag-and-drop entries
+  // walk (see FileBrowser) produce. Recreates that structure as real
+  // folders, memoized by path so uploading 200 photos in one subfolder
+  // creates that subfolder exactly once.
+  const uploadFolder = useCallback(
+    async (entries: { path: string; file: File }[]) => {
+      if (!token || entries.length === 0) return;
+      const folderIds = new Map<string, string | null>([["", current.id]]);
+
+      const resolveFolder = async (path: string): Promise<string | null> => {
+        const cached = folderIds.get(path);
+        if (cached !== undefined) return cached;
+        const slash = path.lastIndexOf("/");
+        const parentPath = slash === -1 ? "" : path.slice(0, slash);
+        const name = slash === -1 ? path : path.slice(slash + 1);
+        const parentId = await resolveFolder(parentPath);
+        const folder = await filesApi.createFolder(token, name, parentId);
+        folderIds.set(path, folder.id);
+        return folder.id;
+      };
+
+      // Folder creation is sequential (each level depends on its
+      // parent existing, and reusing the memo means later files in the
+      // same subfolder don't re-create it) — cheap relative to the file
+      // uploads themselves, which do run concurrently below.
+      const targets: { file: File; parentId: string | null; key: string }[] = [];
+      for (let index = 0; index < entries.length; index++) {
+        const { path, file } = entries[index];
+        const slash = path.lastIndexOf("/");
+        const dirPath = slash === -1 ? "" : path.slice(0, slash);
+        const parentId = await resolveFolder(dirPath);
+        targets.push({ file, parentId, key: `${index}-${path}-${file.size}` });
+      }
+
+      await Promise.all(targets.map((t) => uploadOne(t.file, t.parentId, t.key)));
+
+      await reload();
+      setTimeout(() => setUploads((u) => u.filter((p) => p.status === "error")), 2500);
+    },
+    [token, current.id, reload, uploadOne]
   );
 
   const dismissUpload = useCallback(
@@ -405,6 +523,7 @@ export function useFiles() {
     deleteForever,
     download,
     upload,
+    uploadFolder,
     uploads,
     dismissUpload,
   };

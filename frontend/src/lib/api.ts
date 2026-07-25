@@ -414,6 +414,39 @@ export const files = {
       token,
     }),
 
+  /** Large-file variant: one presigned PUT per part instead of a single
+   * PUT for the whole file, so a flaky part can be retried on its own. */
+  initiateMultipartUpload: (
+    token: string,
+    name: string,
+    parent_id: string | null,
+    content_type: string | null,
+    part_count: number
+  ) =>
+    request<{ item: Item; upload_id: string; part_urls: string[]; expires_in: number }>(
+      "/files/upload-url/multipart",
+      { method: "POST", body: { name, parent_id, content_type, part_count }, token }
+    ),
+
+  completeMultipartUpload: (
+    token: string,
+    itemId: string,
+    uploadId: string,
+    parts: { part_number: number; etag: string }[]
+  ) =>
+    request<Item>(`/files/${itemId}/complete-multipart`, {
+      method: "POST",
+      body: { upload_id: uploadId, parts },
+      token,
+    }),
+
+  abortMultipartUpload: (token: string, itemId: string, uploadId: string) =>
+    request<void>(`/files/${itemId}/abort-multipart`, {
+      method: "POST",
+      body: { upload_id: uploadId },
+      token,
+    }),
+
   completeUpload: (token: string, itemId: string) =>
     request<Item>(`/files/${itemId}/complete`, { method: "POST", token }),
 
@@ -577,5 +610,53 @@ export function uploadToS3(
     xhr.onabort = () => reject(new ApiError(0, "Upload cancelled."));
 
     xhr.send(file);
+  });
+}
+
+/**
+ * Upload one part of a multipart upload, resolving with the ETag S3
+ * returns for it — the caller needs to collect these to complete the
+ * upload. Requires the bucket's CORS to expose the ETag header (see
+ * scripts/configure_bucket_cors.sh), since it's otherwise invisible to
+ * a cross-origin XHR.
+ */
+export function uploadPartToS3(
+  uploadUrl: string,
+  blob: Blob,
+  onProgress?: (fraction: number) => void
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", uploadUrl, true);
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) onProgress(event.loaded / event.total);
+    };
+
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new ApiError(xhr.status, `Part upload failed (${xhr.status}).`));
+        return;
+      }
+      const etag = xhr.getResponseHeader("ETag");
+      if (!etag) {
+        reject(new ApiError(0, "Upload succeeded but the server didn't return an ETag."));
+        return;
+      }
+      resolve(etag);
+    };
+
+    xhr.onerror = () =>
+      reject(
+        new ApiError(
+          0,
+          navigator.onLine
+            ? "Upload failed partway through — the connection to S3 was interrupted."
+            : "Upload failed — you appear to be offline."
+        )
+      );
+    xhr.onabort = () => reject(new ApiError(0, "Upload cancelled."));
+
+    xhr.send(blob);
   });
 }

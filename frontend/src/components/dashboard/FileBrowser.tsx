@@ -11,6 +11,7 @@ import {
   File as FileIcon,
   FileText,
   FolderPlus,
+  FolderUp,
   Folder as FolderIcon,
   Image as ImageIcon,
   Layers,
@@ -62,6 +63,15 @@ const SORT_LABELS: Record<SortKey, string> = {
   size_asc: "Smallest first",
 };
 
+// `webkitdirectory` isn't in React's HTMLInputElement attribute types
+// (it's a long-standing non-standard-but-universally-supported
+// attribute), so it's applied via a typed spread rather than fighting
+// JSX's attribute checking with an inline cast on every use.
+const DIRECTORY_INPUT_PROPS = {
+  webkitdirectory: "true",
+  directory: "true",
+} as unknown as React.InputHTMLAttributes<HTMLInputElement>;
+
 const NAV: { key: View; label: string; icon: React.ReactNode }[] = [
   { key: "files", label: "My Cloud", icon: <FolderIcon size={16} /> },
   { key: "photos", label: "Photos", icon: <ImageIcon size={16} /> },
@@ -70,6 +80,44 @@ const NAV: { key: View; label: string; icon: React.ReactNode }[] = [
   { key: "recent", label: "Recent", icon: <Clock size={16} /> },
   { key: "trash", label: "Trash", icon: <Trash2 size={16} /> },
 ];
+
+// Walks a dropped folder's entries (the drag-and-drop counterpart to
+// the webkitdirectory input, which gets this for free via
+// File.webkitRelativePath) into the same {path, file} shape uploadFolder
+// expects. FileSystemDirectoryReader.readEntries only returns up to 100
+// entries per call and must be re-called until it returns empty, hence
+// the loop rather than a single read.
+async function readAllDirectoryEntries(
+  reader: FileSystemDirectoryReader
+): Promise<FileSystemEntry[]> {
+  const all: FileSystemEntry[] = [];
+  for (;;) {
+    const batch = await new Promise<FileSystemEntry[]>((resolve, reject) =>
+      reader.readEntries(resolve, reject)
+    );
+    if (batch.length === 0) break;
+    all.push(...batch);
+  }
+  return all;
+}
+
+async function walkFileSystemEntry(
+  entry: FileSystemEntry,
+  prefix: string,
+  out: { path: string; file: File }[]
+): Promise<void> {
+  if (entry.isFile) {
+    const file = await new Promise<File>((resolve, reject) =>
+      (entry as FileSystemFileEntry).file(resolve, reject)
+    );
+    out.push({ path: `${prefix}${entry.name}`, file });
+  } else if (entry.isDirectory) {
+    const children = await readAllDirectoryEntries(
+      (entry as FileSystemDirectoryEntry).createReader()
+    );
+    await Promise.all(children.map((child) => walkFileSystemEntry(child, `${prefix}${entry.name}/`, out)));
+  }
+}
 
 // Named keys only (see ALLOWED_ITEM_COLORS on the backend) — the actual
 // hex values are a frontend-only styling choice.
@@ -127,6 +175,7 @@ export function FileBrowser() {
   };
 
   const fileInput = useRef<HTMLInputElement>(null);
+  const folderInput = useRef<HTMLInputElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const sentinel = useRef<HTMLDivElement>(null);
 
@@ -238,6 +287,23 @@ export function FileBrowser() {
     e.preventDefault();
     setDragging(false);
     if (view === "trash") return;
+
+    const items = e.dataTransfer.items;
+    const entries =
+      items && items.length > 0
+        ? Array.from(items)
+            .map((item) => item.webkitGetAsEntry?.())
+            .filter((entry): entry is FileSystemEntry => entry !== null && entry !== undefined)
+        : [];
+
+    if (entries.some((entry) => entry.isDirectory)) {
+      const out: { path: string; file: File }[] = [];
+      void Promise.all(entries.map((entry) => walkFileSystemEntry(entry, "", out))).then(() =>
+        guard(() => b.uploadFolder(out))
+      );
+      return;
+    }
+
     if (e.dataTransfer.files.length) void guard(() => b.upload(e.dataTransfer.files));
   };
 
@@ -271,6 +337,7 @@ export function FileBrowser() {
           searchRef={searchInput}
           onNewFolder={() => setDialog({ kind: "newFolder" })}
           onUploadClick={() => fileInput.current?.click()}
+          onUploadFolderClick={() => folderInput.current?.click()}
           onOpenSidebar={() => setSidebarOpen(true)}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
@@ -285,6 +352,25 @@ export function FileBrowser() {
           hidden
           onChange={(e) => {
             if (e.target.files?.length) void guard(() => b.upload(e.target.files!));
+            e.target.value = "";
+          }}
+        />
+
+        <input
+          ref={folderInput}
+          type="file"
+          multiple
+          hidden
+          {...DIRECTORY_INPUT_PROPS}
+          onChange={(e) => {
+            const files = e.target.files;
+            if (files?.length) {
+              const entries = Array.from(files).map((file) => ({
+                path: file.webkitRelativePath || file.name,
+                file,
+              }));
+              void guard(() => b.uploadFolder(entries));
+            }
             e.target.value = "";
           }}
         />
@@ -785,6 +871,7 @@ function Toolbar({
   searchRef,
   onNewFolder,
   onUploadClick,
+  onUploadFolderClick,
   onOpenSidebar,
   viewMode,
   onViewModeChange,
@@ -795,6 +882,7 @@ function Toolbar({
   searchRef: React.RefObject<HTMLInputElement | null>;
   onNewFolder: () => void;
   onUploadClick: () => void;
+  onUploadFolderClick: () => void;
   onOpenSidebar: () => void;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
@@ -966,6 +1054,16 @@ function Toolbar({
             >
               <FolderPlus size={16} />
               <span className="btn-label">New folder</span>
+            </button>
+            <button
+              type="button"
+              onClick={onUploadFolderClick}
+              className="btn-secondary"
+              aria-label="Upload folder"
+              style={{ padding: "0 12px" }}
+            >
+              <FolderUp size={16} />
+              <span className="btn-label">Upload folder</span>
             </button>
             <button
               type="button"
