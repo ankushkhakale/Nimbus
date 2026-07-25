@@ -52,17 +52,54 @@ above. `requirements.md` has the cost math and rationale.
 
 ## Current state
 
-Tasks 1–7 are **done and deployed**; the dashboard is a working file
-manager, not a mockup.
+The original tasks 1–7 are **done and deployed**, and a large dashboard
+feature push (the "dashboard PRD") has since shipped on top — the app is
+a full-featured file manager, not a mockup.
 
 | Area | State |
 |---|---|
-| Auth | register / login / me / forgot-password (stub, no mail provider) |
-| Files | 23 endpoints: paginated list, folders, upload, download, preview, move, rename, trash, restore, permanent delete, search, photos, recent, usage |
-| Thumbnails | automatic on every S3 upload, verified end to end |
+| Auth | register / login / me / forgot-password (stub, no mail provider); Google + GitHub OAuth; **session management** (list/revoke signed-in devices); **login-activity log** |
+| Files | paginated list, folders, upload, download, preview, move, rename, trash, restore, permanent delete, search (+ filters & saved searches), photos, videos, recent, usage; **duplicate detection & photo stacks**, **map view (GPS EXIF)**, **file versioning** (bounded retention), **sharing** (public/expiring/named-recipient links + folder shares), **multipart + folder upload**, **activity feed** |
+| Thumbnails | automatic on every S3 upload (image dHash + GPS metadata piggybacked); **video-frame thumbnails are wired but inert** until an ffmpeg Lambda-layer ARN is supplied (`FfmpegLayerArn` param, empty by default) |
 | Migration | `scripts/migrate_takeout.py` — resumable, sidecar-aware |
-| Frontend | landing page, auth wired, dashboard with infinite scroll, lightbox, multi-select, move dialog, trash, search, upload progress |
-| Tests | 127 backend tests; `tsc`/eslint/`next build` clean |
+| Frontend | landing, auth, dashboard (infinite scroll, lightbox with zoom/slideshow/cast/in-browser photo editing, multi-select, drag-move, right-click menu, undo toasts, bulk rename, client-side ZIP download), docx preview + side-by-side compare, Settings (profile/storage/security/preferences), **light/dark theme**, **partial i18n (English/Hindi)** |
+| Tests | 242 backend tests; `tsc`/eslint/`next build` clean |
+
+### Dashboard PRD batches (shipped, each its own merged PR)
+
+Delivered incrementally as batches, each backend-verified (`pytest`) and
+frontend-verified (`tsc` + `eslint` + `next build`) before merge:
+
+1–7 quick wins, starred/grid/colored folders, search filters + saved
+searches, duplicate detection + photo stacks, map view (GPS EXIF),
+in-browser photo editing, slideshow + cast · **8** video thumbnails
+(code only — needs an ffmpeg layer + a deploy decision to activate) ·
+**9** sharing · **10** office-doc (docx) preview + compare · **11**
+folder upload + multipart/chunked large uploads · **12** file versioning
+(bounded to 10/file) · **13** bulk ops (rename, ZIP download, drag-move,
+context menu, undo) · **14** activity + login-activity logs · **15**
+storage-almost-full banner · **16** light/dark theme + i18n foundation ·
+**18** session management.
+
+Not done: **17 (2FA/TOTP) — dropped by the owner.** Remaining/queued:
+**19** account export, **20** locked folder, **21** accessibility, **22**
+offline read-only cache, **23** "free up space" flow, **24** owner cost
+transparency. Deliberately excluded (per-call AI cost, format/audience
+mismatch, or platform limits): AI-organize/semantic-search/face-grouping,
+realtime collab, watermarking/DLP, desktop sync, camera-roll auto-backup,
+client-side E2E encryption (deferred to its own security-critical pass).
+
+**Notes for future work:**
+- Two new client dependencies were added and vetted: `mammoth` (docx
+  preview) and `jszip` (client-side ZIP). `xlsx` (SheetJS) was
+  **evaluated and rejected** — unpatched high-severity CVEs, risky given
+  public share links; xlsx/pptx preview fall back to download.
+- i18n coverage is intentionally **partial** (nav + Settings translated;
+  dialogs/landing still English). The Hindi strings want a native-speaker
+  review before a Hindi-first launch.
+- `npm audit` flags pre-existing high-severity advisories in Next.js
+  framework transitive deps (sharp/postcss/brace-expansion/js-yaml) —
+  untouched by feature work; worth a standalone `next` bump PR.
 
 **Getting the live URL** (don't hardcode it — read it from the stack):
 ```bash
@@ -97,6 +134,18 @@ aws cloudformation describe-stacks --stack-name nimbus-backend --region ap-south
   succeed and had not.
 - **`.env` is gitignored and untracked** — it was previously committed.
   Never re-add it. `.env.example` is the committed template.
+- **The local dev frontend's `.env.local` points at the live deployed
+  backend**, not a local one. So testing an unmerged batch's new
+  endpoints/fields in the browser shows stale/missing data (a new route
+  404/405s) until it deploys — this is expected, not a bug. First
+  hypothesis for any "my new field isn't showing locally" confusion.
+- **The React Compiler lint is strict** (`react-hooks/set-state-in-effect`,
+  `react-hooks/refs`, `react-hooks/immutability`). Don't call a state
+  setter synchronously as an effect's first statement (use a lazy
+  `useState(() => readLocalStorage())` initializer, or set it in an
+  event handler / after an async boundary); don't read/write `ref.current`
+  during render; don't assign `window.location.href` (use
+  `.assign(...)`). These fail the CI build, not just the editor.
 - **Deletion is soft.** `DELETE` trashes; only `/files/delete-permanently`
   and the purge remove S3 objects. Trashed items still cost storage, which
   is why usage reports them separately.
