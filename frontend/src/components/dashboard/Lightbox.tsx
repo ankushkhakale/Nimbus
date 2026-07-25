@@ -11,11 +11,12 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, FileText, Printer, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, FileText, Pencil, Printer, X } from "lucide-react";
 
 import { Item, files as filesApi } from "@/lib/api";
 import { formatBytes, formatRelativeDate, isAudio, isImage, isVideo } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
+import { PhotoEditor } from "./PhotoEditor";
 import { ZoomableImage } from "./ZoomableImage";
 
 function isPdf(item: Item): boolean {
@@ -28,12 +29,17 @@ export function Lightbox({
   onClose,
   onNavigate,
   onDownload,
+  onEdited,
 }: {
   items: Item[];
   index: number;
   onClose: () => void;
   onNavigate: (nextIndex: number) => void;
   onDownload: (item: Item) => void;
+  /** Called after the in-browser editor successfully overwrites a
+   * photo's bytes, so the caller can refresh listing metadata
+   * (size, updated_at) elsewhere in the UI. */
+  onEdited?: () => void;
 }) {
   const { token } = useAuth();
   // Tagged with the item it belongs to, so paging to the next photo shows
@@ -41,6 +47,11 @@ export function Lightbox({
   // alternative — resetting state at the top of the effect — triggers a
   // cascading render on every navigation.
   const [preview, setPreview] = useState<{ id: string; url: string | null } | null>(null);
+  const [editing, setEditing] = useState(false);
+  // Bumped after a save so the preview effect re-fetches a fresh
+  // presigned URL for the SAME item id — its dependency on `item` alone
+  // wouldn't otherwise change when the underlying S3 object is replaced.
+  const [editVersion, setEditVersion] = useState(0);
 
   const item = items[index];
   const canPrev = index > 0;
@@ -60,7 +71,7 @@ export function Lightbox({
     return () => {
       active = false;
     };
-  }, [token, item]);
+  }, [token, item, editVersion]);
 
   const handleKey = useCallback(
     (e: KeyboardEvent) => {
@@ -93,6 +104,7 @@ export function Lightbox({
   // only the media prints — not the whole dark-mode viewer chrome behind
   // it. Scoped to images and PDFs; printing video/audio isn't meaningful.
   const printable = url && (isImage(item.content_type) || isPdf(item));
+  const editable = url && !failed && isImage(item.content_type);
 
   const handlePrint = () => {
     if (!url) return;
@@ -162,6 +174,18 @@ export function Lightbox({
         </div>
 
         <div style={{ display: "flex", gap: 10, flexShrink: 0 }}>
+          {editable && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setEditing(true)}
+              aria-label="Edit"
+              style={{ padding: "0 12px" }}
+            >
+              <Pencil size={16} />
+              <span className="btn-label">Edit</span>
+            </button>
+          )}
           {printable && (
             <button
               type="button"
@@ -261,6 +285,18 @@ export function Lightbox({
 
         {canNext && <NavButton side="right" onClick={() => onNavigate(index + 1)} />}
       </div>
+
+      {editing && url && (
+        <PhotoEditor
+          item={item}
+          imageUrl={url}
+          onClose={() => setEditing(false)}
+          onSaved={() => {
+            setEditVersion((v) => v + 1);
+            onEdited?.();
+          }}
+        />
+      )}
     </div>
   );
 }

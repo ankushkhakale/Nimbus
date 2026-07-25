@@ -320,12 +320,16 @@ class FileService:
         url = self._storage.upload_url(key, content_type=content_type)
         return item, url
 
-    async def complete_upload(self, user_id: str, item_id: str) -> Item:
+    async def complete_upload(
+        self, user_id: str, item_id: str, *, content_type: str | None = None
+    ) -> Item:
         """Confirm an upload by checking S3 directly.
 
         The size is read from S3 rather than taken from the client, so a
         caller cannot under-report usage or mark a file ready that was
-        never actually uploaded.
+        never actually uploaded. `content_type` is only passed by the
+        in-place-edit flow, where the saved bytes are always a re-encoded
+        JPEG regardless of the original format.
         """
         item = await self._require_item(user_id, item_id)
         if item.is_folder or not item.s3_key:
@@ -340,10 +344,35 @@ class FileService:
                 detail="No uploaded object found for this item yet.",
             )
 
-        updated = await self._items.mark_ready(user_id, item_id, size)
+        updated = await self._items.mark_ready(user_id, item_id, size, content_type=content_type)
         if updated is None:  # pragma: no cover - lost a concurrent delete
             raise self._not_found()
         return updated
+
+    async def start_replace(self, user_id: str, item_id: str) -> str:
+        """Presigned URL to overwrite an existing image's bytes in place.
+
+        Used by in-browser editing (crop/rotate/brightness/contrast).
+        Reuses the item's existing S3 key rather than minting a new one,
+        so the item's id, name, and folder are untouched — only its
+        content changes. The PUT re-fires the same S3 ObjectCreated event
+        the thumbnailer already listens for, so the thumbnail, perceptual
+        hash, and GPS metadata all regenerate for free.
+
+        There's no versioning yet (planned separately) — this is a
+        destructive overwrite, and the frontend must get explicit
+        confirmation before calling it.
+        """
+        item = await self._require_item(user_id, item_id)
+        if item.is_folder or not item.s3_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Item is not an editable file."
+            )
+        if not (item.content_type or "").startswith("image/"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Only images can be edited."
+            )
+        return self._storage.upload_url(item.s3_key, content_type="image/jpeg")
 
     # --- urls ----------------------------------------------------------
 

@@ -729,6 +729,43 @@ def test_map_points_ignores_images_without_a_thumbnail_yet(
     assert client.get(f"{FILES}/map-points", headers=h).json()["photos"] == []
 
 
+# --- in-browser photo editing (in-place replace) ---------------------------
+
+def test_replace_upload_url_then_complete_updates_size_and_content_type(
+    client, auth_headers, fake_storage, fake_item_repo
+):
+    h = auth_headers()
+    item_id = _ready_file(client, h, fake_storage, fake_item_repo, "photo.png", None, "image/png", size=500)
+
+    resp = client.post(f"{FILES}/{item_id}/replace-upload-url", headers=h)
+    assert resp.status_code == 200
+    assert resp.json()["upload_url"]
+
+    # Simulate the browser PUTting the edited (always re-encoded JPEG) bytes.
+    key = fake_item_repo._items[item_id].s3_key
+    fake_storage.uploaded[key] = 999
+
+    body = client.post(f"{FILES}/{item_id}/complete-replace", headers=h).json()
+    assert body["size"] == 999
+    assert body["content_type"] == "image/jpeg"
+
+
+def test_replace_upload_url_rejects_non_images(client, auth_headers, fake_storage, fake_item_repo):
+    h = auth_headers()
+    item_id = _ready_file(client, h, fake_storage, fake_item_repo, "notes.txt", None, "text/plain")
+
+    resp = client.post(f"{FILES}/{item_id}/replace-upload-url", headers=h)
+    assert resp.status_code == 400
+
+
+def test_replace_upload_url_rejects_folders(client, auth_headers):
+    h = auth_headers()
+    folder_id = _folder(client, h, "a-folder")
+
+    resp = client.post(f"{FILES}/{folder_id}/replace-upload-url", headers=h)
+    assert resp.status_code == 400
+
+
 def test_map_points_are_isolated_per_user(client, auth_headers, fake_storage, fake_item_repo):
     a = auth_headers("a@example.com")
     b = auth_headers("b@example.com")

@@ -417,6 +417,18 @@ export const files = {
   completeUpload: (token: string, itemId: string) =>
     request<Item>(`/files/${itemId}/complete`, { method: "POST", token }),
 
+  /** Presigned URL to overwrite an image's bytes in place — the
+   * in-browser editor's save path. Destructive; confirm with the user
+   * before uploading to it. */
+  replaceUploadUrl: (token: string, itemId: string) =>
+    request<{ upload_url: string; expires_in: number }>(`/files/${itemId}/replace-upload-url`, {
+      method: "POST",
+      token,
+    }),
+
+  completeReplace: (token: string, itemId: string) =>
+    request<Item>(`/files/${itemId}/complete-replace`, { method: "POST", token }),
+
   downloadUrl: (token: string, itemId: string) =>
     request<{ download_url: string; expires_in: number }>(`/files/${itemId}/download-url`, {
       token,
@@ -452,7 +464,7 @@ export const files = {
  */
 export function uploadToS3(
   uploadUrl: string,
-  file: File,
+  file: File | Blob,
   contentType: string | null,
   onProgress?: (fraction: number) => void
 ): Promise<void> {
