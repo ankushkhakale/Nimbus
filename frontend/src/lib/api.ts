@@ -279,10 +279,34 @@ export const files = {
       token,
     }),
 
-  search: (token: string, q: string, opts: { offset?: number; limit?: number } = {}) =>
-    request<Page<Item>>(`/files/search${qs({ q, offset: opts.offset, limit: opts.limit })}`, {
-      token,
-    }),
+  search: (
+    token: string,
+    q: string,
+    opts: {
+      offset?: number;
+      limit?: number;
+      type?: ItemType;
+      category?: string;
+      min_size?: number;
+      max_size?: number;
+      updated_after?: string;
+      updated_before?: string;
+    } = {}
+  ) =>
+    request<Page<Item>>(
+      `/files/search${qs({
+        q,
+        offset: opts.offset,
+        limit: opts.limit,
+        type: opts.type,
+        category: opts.category,
+        min_size: opts.min_size,
+        max_size: opts.max_size,
+        updated_after: opts.updated_after,
+        updated_before: opts.updated_before,
+      })}`,
+      { token }
+    ),
 
   recent: (token: string, limit = 20) =>
     request<Item[]>(`/files/recent${qs({ limit })}`, { token }),

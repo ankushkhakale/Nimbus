@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 
 import pytest
@@ -8,6 +9,20 @@ from app.api import deps
 from app.api.api_router import api_router
 from app.models.item import Item, ItemType, UploadStatus
 from app.models.user import UserInDB
+
+
+def _category_of(content_type: str | None) -> str:
+    """Mirrors CATEGORY_REGEX in item_repository.py."""
+    ct = content_type or ""
+    if ct.startswith("image/"):
+        return "images"
+    if ct.startswith("video/"):
+        return "video"
+    if ct.startswith("audio/"):
+        return "audio"
+    if re.search("pdf|document|text|spreadsheet|presentation", ct):
+        return "documents"
+    return "other"
 
 
 class FakeUserRepository:
@@ -153,9 +168,37 @@ class FakeItemRepository:
         return vids[offset : offset + limit], len(vids)
 
     async def search(
-        self, user_id: str, term: str, *, offset: int = 0, limit: int = 100
+        self,
+        user_id: str,
+        term: str,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+        item_type: str | None = None,
+        category: str | None = None,
+        min_size: int | None = None,
+        max_size: int | None = None,
+        updated_after=None,
+        updated_before=None,
     ) -> tuple[list[Item], int]:
-        hits = [i for i in self._mine(user_id) if term.lower() in i.name.lower()]
+        import re
+
+        hits = [
+            i for i in self._mine(user_id)
+            if re.search(re.escape(term), i.name, re.IGNORECASE)
+        ]
+        if item_type is not None:
+            hits = [i for i in hits if i.type.value == item_type]
+        if category is not None:
+            hits = [i for i in hits if _category_of(i.content_type) == category]
+        if min_size is not None:
+            hits = [i for i in hits if (i.size or 0) >= min_size]
+        if max_size is not None:
+            hits = [i for i in hits if (i.size or 0) <= max_size]
+        if updated_after is not None:
+            hits = [i for i in hits if i.updated_at >= updated_after]
+        if updated_before is not None:
+            hits = [i for i in hits if i.updated_at <= updated_before]
         hits.sort(key=lambda i: (i.type is not ItemType.FOLDER, i.name.lower()))
         return hits[offset : offset + limit], len(hits)
 
