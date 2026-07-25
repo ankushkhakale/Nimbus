@@ -13,6 +13,7 @@ import {
   FolderPlus,
   FolderUp,
   Folder as FolderIcon,
+  History,
   Image as ImageIcon,
   Layers,
   LayoutGrid,
@@ -46,6 +47,7 @@ import { Lightbox } from "./Lightbox";
 import { MoveDialog } from "./MoveDialog";
 import { ComparePanel } from "./ComparePanel";
 import { ShareDialog } from "./ShareDialog";
+import { VersionHistoryDialog } from "./VersionHistoryDialog";
 import { SharedWithMePanel } from "./SharedWithMePanel";
 import { DuplicatesPanel } from "./DuplicatesPanel";
 import { MapView } from "./MapView";
@@ -150,7 +152,8 @@ type DialogState =
   | { kind: "trash"; items: Item[] }
   | { kind: "deleteForever"; items: Item[] }
   | { kind: "move"; items: Item[] }
-  | { kind: "share"; item: Item };
+  | { kind: "share"; item: Item }
+  | { kind: "versions"; item: Item };
 
 export function FileBrowser() {
   const b = useFiles();
@@ -484,6 +487,7 @@ export function FileBrowser() {
                           onRestore={() => void guard(() => b.restoreItems([file.id]))}
                           onToggleStar={() => void guard(() => b.toggleStarred(file))}
                           onShare={() => setDialog({ kind: "share", item: file })}
+                          onVersionHistory={() => setDialog({ kind: "versions", item: file })}
                         />
                       ))}
                     </div>
@@ -630,6 +634,14 @@ export function FileBrowser() {
       )}
 
       {dialog.kind === "share" && <ShareDialog item={dialog.item} onClose={closeDialog} />}
+
+      {dialog.kind === "versions" && (
+        <VersionHistoryDialog
+          item={dialog.item}
+          onClose={closeDialog}
+          onRestored={() => void b.reload()}
+        />
+      )}
 
       {lightboxIndex >= 0 && (
         <Lightbox
@@ -1537,6 +1549,7 @@ function FileRow({
   onRestore,
   onToggleStar,
   onShare,
+  onVersionHistory,
 }: {
   item: Item;
   isSelected: boolean;
@@ -1549,6 +1562,7 @@ function FileRow({
   onRestore: () => void;
   onToggleStar: () => void;
   onShare: () => void;
+  onVersionHistory: () => void;
 }) {
   return (
     <div
@@ -1630,6 +1644,7 @@ function FileRow({
                 },
                 { label: "Rename", icon: <Pencil size={15} />, onClick: onRename },
                 { label: "Share", icon: <Share2 size={15} />, onClick: onShare },
+                { label: "Version history", icon: <History size={15} />, onClick: onVersionHistory },
                 {
                   label: "Move to Trash",
                   icon: <Trash2 size={15} />,

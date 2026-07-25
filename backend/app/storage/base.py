@@ -40,6 +40,15 @@ class ObjectStorage(ABC):
         """User-supplied object metadata (e.g. the thumbnailer's
         perceptual hash), or None if the object is absent."""
 
+    @abstractmethod
+    def copy(self, src_key: str, dest_key: str) -> None:
+        """Server-side copy of one object to another key.
+
+        Used by versioning to snapshot the current bytes before they are
+        overwritten — done entirely within the storage backend, so the
+        bytes never pass through the API (same principle as presigned
+        upload/download)."""
+
     # --- multipart upload (large files) ---------------------------------
     #
     # Same "browser talks to S3 directly" principle as upload_url/

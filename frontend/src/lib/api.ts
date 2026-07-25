@@ -486,7 +486,41 @@ export const files = {
 
   remove: (token: string, itemId: string) =>
     request<void>(`/files/${itemId}`, { method: "DELETE", token }),
+
+  // --- versions ---
+
+  versions: (token: string, itemId: string) =>
+    request<{ versions: FileVersion[] }>(`/files/${itemId}/versions`, { token }),
+
+  /** Snapshot the current bytes and hand back a presigned PUT for the
+   * replacement (any file type). */
+  newVersionUploadUrl: (token: string, itemId: string) =>
+    request<{ upload_url: string; expires_in: number }>(
+      `/files/${itemId}/new-version-upload-url`,
+      { method: "POST", token }
+    ),
+
+  completeNewVersion: (token: string, itemId: string) =>
+    request<Item>(`/files/${itemId}/complete-new-version`, { method: "POST", token }),
+
+  versionDownloadUrl: (token: string, itemId: string, versionId: string) =>
+    request<{ download_url: string; expires_in: number }>(
+      `/files/${itemId}/versions/${versionId}/download-url`,
+      { token }
+    ),
+
+  restoreVersion: (token: string, itemId: string, versionId: string) =>
+    request<Item>(`/files/${itemId}/versions/${versionId}/restore`, { method: "POST", token }),
 };
+
+export interface FileVersion {
+  id: string;
+  version_number: number;
+  size: number | null;
+  content_type: string | null;
+  name: string;
+  created_at: string;
+}
 
 // --- shares ----------------------------------------------------------------
 

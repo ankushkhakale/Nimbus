@@ -16,8 +16,10 @@ from uuid import uuid4
 from fastapi import HTTPException, status
 
 from app.core.config import settings
+from app.models.file_version import FileVersion
 from app.models.item import Item, ItemType, UploadStatus
 from app.repositories.item_repository import MAX_PAGE_SIZE, ItemRepository
+from app.repositories.version_repository import VersionRepository
 from app.storage.base import ObjectStorage
 from app.storage.keys import (
     InvalidObjectKey,
@@ -47,15 +49,27 @@ STACK_TIME_WINDOW_SECONDS = 120
 # to a comfortable number of round trips against S3.
 MAP_SCAN_LIMIT = 1000
 
+# How many prior versions to keep per file. Each version is a full copy
+# of the bytes, so this is a real storage-cost knob, not just metadata —
+# bounded rather than unlimited for exactly that reason. Once an item
+# exceeds this, the oldest version's object and record are removed.
+MAX_VERSIONS_PER_ITEM = 10
+
 
 def _hamming(a: str, b: str) -> int:
     return bin(int(a, 16) ^ int(b, 16)).count("1")
 
 
 class FileService:
-    def __init__(self, items: ItemRepository, storage: ObjectStorage):
+    def __init__(
+        self,
+        items: ItemRepository,
+        storage: ObjectStorage,
+        versions: VersionRepository | None = None,
+    ):
         self._items = items
         self._storage = storage
+        self._versions = versions
 
     # --- helpers -------------------------------------------------------
 
@@ -407,9 +421,10 @@ class FileService:
         the thumbnailer already listens for, so the thumbnail, perceptual
         hash, and GPS metadata all regenerate for free.
 
-        There's no versioning yet (planned separately) — this is a
-        destructive overwrite, and the frontend must get explicit
-        confirmation before calling it.
+        Snapshots the current bytes as a version first (when versioning
+        is wired up), so an edit is undoable via version history. Still a
+        destructive overwrite of the *current* object, so the frontend
+        must confirm before calling it.
         """
         item = await self._require_item(user_id, item_id)
         if item.is_folder or not item.s3_key:
@@ -420,7 +435,127 @@ class FileService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Only images can be edited."
             )
+        await self._snapshot_version(user_id, item)
         return self._storage.upload_url(item.s3_key, content_type="image/jpeg")
+
+    # --- versioning ----------------------------------------------------
+    #
+    # Application-level, not S3 bucket versioning: each snapshot is its
+    # own object under the user's prefix, tracked by its own document, so
+    # retention is bounded (MAX_VERSIONS_PER_ITEM) rather than relying on
+    # a bucket-wide lifecycle policy. The item's own s3_key always points
+    # at the *current* bytes; versions point elsewhere.
+
+    async def _snapshot_version(self, user_id: str, item: Item) -> None:
+        """Copy the item's current object to a version key and record it,
+        then evict the oldest if the item is over the retention cap.
+
+        A no-op when versioning isn't wired up (no repository) or the
+        item has no bytes yet — so callers can invoke it unconditionally.
+        """
+        if self._versions is None or not item.s3_key:
+            return
+        if not is_owned_by(item.s3_key, user_id):  # pragma: no cover - defensive
+            return
+        # Nothing to snapshot if the current object doesn't exist yet.
+        size = self._storage.size(item.s3_key)
+        if size is None:
+            return
+
+        try:
+            version_key = build_user_key(user_id, f"versions/{uuid4().hex}")
+        except InvalidObjectKey as exc:  # pragma: no cover - defensive
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+        self._storage.copy(item.s3_key, version_key)
+        number = await self._versions.next_version_number(user_id, item.id)
+        await self._versions.create(
+            user_id,
+            item.id,
+            version_number=number,
+            s3_key=version_key,
+            size=size,
+            content_type=item.content_type,
+            name=item.name,
+        )
+
+        # Evict oldest beyond the cap — object and record — so an item's
+        # version history can't grow storage without bound.
+        while await self._versions.count_for_item(user_id, item.id) > MAX_VERSIONS_PER_ITEM:
+            oldest = await self._versions.oldest_for_item(user_id, item.id)
+            if oldest is None:  # pragma: no cover - race
+                break
+            self._delete_version_object(oldest, user_id)
+            await self._versions.delete(user_id, oldest.id)
+
+    def _delete_version_object(self, version: FileVersion, user_id: str) -> None:
+        if not version.s3_key or not is_owned_by(version.s3_key, user_id):
+            return
+        try:
+            self._storage.delete(version.s3_key)
+            self._storage.delete(thumbnail_key(version.s3_key))
+        except Exception:  # pragma: no cover - best effort
+            logger.exception("Failed deleting version object %s", version.s3_key)
+
+    async def list_versions(self, user_id: str, item_id: str) -> list[FileVersion]:
+        await self._require_item(user_id, item_id)
+        if self._versions is None:
+            return []
+        return await self._versions.list_for_item(user_id, item_id)
+
+    async def start_new_version(self, user_id: str, item_id: str) -> str:
+        """Presigned URL to upload replacement bytes for any file, keeping
+        the current bytes as a version. Unlike start_replace (image
+        editor, re-encodes to JPEG) this preserves the item's own content
+        type, since the new upload is the same kind of file."""
+        item = await self._require_item(user_id, item_id)
+        if item.is_folder or not item.s3_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Item is not a file."
+            )
+        await self._snapshot_version(user_id, item)
+        return self._storage.upload_url(item.s3_key, content_type=item.content_type)
+
+    async def restore_version(self, user_id: str, item_id: str, version_id: str) -> Item:
+        """Make a prior version the current bytes. Snapshots the current
+        state first, so a restore is itself undoable."""
+        item = await self._require_item(user_id, item_id)
+        if self._versions is None:
+            raise self._not_found()
+        version = await self._versions.get(user_id, version_id)
+        if version is None or version.item_id != item_id or not item.s3_key:
+            raise self._not_found()
+        if not is_owned_by(version.s3_key, user_id):  # pragma: no cover - defensive
+            raise self._not_found()
+
+        # Keep the current bytes recoverable before overwriting them.
+        await self._snapshot_version(user_id, item)
+        # Overwrite the current object with the version's bytes. This
+        # re-fires ObjectCreated, so thumbnail/hash/GPS regenerate.
+        self._storage.copy(version.s3_key, item.s3_key)
+        size = self._storage.size(item.s3_key)
+        updated = await self._items.mark_ready(
+            user_id, item_id, size or 0, content_type=version.content_type
+        )
+        if updated is None:  # pragma: no cover - lost a concurrent delete
+            raise self._not_found()
+        return updated
+
+    async def version_download_url(
+        self, user_id: str, item_id: str, version_id: str
+    ) -> tuple[str, int]:
+        await self._require_item(user_id, item_id)
+        if self._versions is None:
+            raise self._not_found()
+        version = await self._versions.get(user_id, version_id)
+        if version is None or version.item_id != item_id:
+            raise self._not_found()
+        if not is_owned_by(version.s3_key, user_id):  # pragma: no cover - defensive
+            raise self._not_found()
+        return (
+            self._storage.download_url(version.s3_key, filename=version.name),
+            settings.PRESIGNED_URL_EXPIRE_SECONDS,
+        )
 
     # --- urls ----------------------------------------------------------
 
@@ -597,9 +732,20 @@ class FileService:
             if item is None:
                 continue
             self._remove_objects(item, user_id)
+            await self._remove_versions(user_id, item.id)
             if await self._items.hard_delete(user_id, item.id):
                 removed += 1
         return removed
+
+    async def _remove_versions(self, user_id: str, item_id: str) -> None:
+        """Delete every version object + record for an item — otherwise a
+        permanently-deleted file's old versions would sit in the bucket
+        costing storage forever."""
+        if self._versions is None:
+            return
+        for version in await self._versions.list_all_for_item(user_id, item_id):
+            self._delete_version_object(version, user_id)
+        await self._versions.delete_all_for_item(user_id, item_id)
 
     def _remove_objects(self, item: Item, user_id: str) -> None:
         if not item.s3_key or not is_owned_by(item.s3_key, user_id):

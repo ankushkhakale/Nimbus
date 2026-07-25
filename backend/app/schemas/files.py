@@ -257,6 +257,19 @@ class AbortMultipartUploadRequest(BaseModel):
     upload_id: str
 
 
+class FileVersionResponse(BaseModel):
+    id: str
+    version_number: int
+    size: int | None
+    content_type: str | None
+    name: str
+    created_at: datetime
+
+
+class FileVersionsResponse(BaseModel):
+    versions: list[FileVersionResponse]
+
+
 class DownloadUrlResponse(BaseModel):
     download_url: str
     expires_in: int

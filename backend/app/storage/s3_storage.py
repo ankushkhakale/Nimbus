@@ -84,6 +84,17 @@ class S3ObjectStorage(ObjectStorage):
         # boto3 already lower-cases and strips the x-amz-meta- prefix.
         return head.get("Metadata", {})
 
+    def copy(self, src_key: str, dest_key: str) -> None:
+        self._client.copy_object(
+            Bucket=self._bucket,
+            Key=dest_key,
+            CopySource={"Bucket": self._bucket, "Key": src_key},
+            # A copy into the users/ prefix re-fires ObjectCreated, so the
+            # thumbnailer regenerates a thumbnail for the version too — a
+            # feature (version-history previews), not waste.
+            MetadataDirective="COPY",
+        )
+
     def create_multipart_upload(self, key: str, *, content_type: str | None = None) -> str:
         params: dict = {"Bucket": self._bucket, "Key": key}
         if content_type:
