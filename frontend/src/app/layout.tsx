@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
+import { PreferencesInit } from "@/components/PreferencesInit";
 
 // One sans family carries the whole hierarchy through size and weight;
 // there is no display counter-voice. Mono is only for commands and keys.
@@ -39,6 +40,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <body>
+        <PreferencesInit />
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>

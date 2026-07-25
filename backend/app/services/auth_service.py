@@ -172,6 +172,19 @@ class AuthService:
         # apart. The TTL index removes it once it expires anyway.
         return user, await self.issue_refresh_token(user)
 
+    async def sign_out_everywhere(self, user_id: str) -> None:
+        """Revoke every refresh token for this account, on every device.
+
+        The caller's own current access token still has up to 24h left to
+        live — it's a stateless JWT with no revocation list — but this
+        stops it (and every other device's session) from ever refreshing
+        again, so the practical effect is a sign-out everywhere within one
+        token lifetime at most.
+        """
+        if self._refresh is None:  # pragma: no cover - wiring guard
+            raise RuntimeError("Refresh token repository is not configured.")
+        await self._refresh.revoke_all_for_user(user_id)
+
     async def revoke_refresh_token(self, token: str | None) -> None:
         """Sign out. Absent or unknown tokens are ignored — logout should
         never fail."""

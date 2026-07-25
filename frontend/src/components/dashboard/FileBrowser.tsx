@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ChevronDown,
   ChevronRight,
   Clock,
   Cloud,
@@ -22,15 +23,18 @@ import {
   X,
 } from "lucide-react";
 
-import { Item, SortKey } from "@/lib/api";
+import { Item, SortKey, files as filesApi } from "@/lib/api";
 import { formatBytes, formatRelativeDate } from "@/lib/format";
-import { View, useFiles } from "@/lib/use-files";
+import { Crumb, View, useFiles } from "@/lib/use-files";
+import { useAuth } from "@/lib/auth-context";
 import { FormError } from "@/components/FormError";
 import { UserMenu } from "@/components/UserMenu";
 import { ConfirmModal, PromptModal } from "@/components/ui/Modal";
 import { OverflowMenu } from "@/components/ui/OverflowMenu";
+import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
 import { Lightbox } from "./Lightbox";
 import { MoveDialog } from "./MoveDialog";
+import { OnThisDay } from "./OnThisDay";
 import { PhotoGrid } from "./PhotoGrid";
 import { StorageWidget } from "./StorageWidget";
 
@@ -75,7 +79,12 @@ export function FileBrowser() {
   const [dragging, setDragging] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [lightboxId, setLightboxId] = useState<string | null>(null);
+  // Set only when the Lightbox is opened from a list that isn't the
+  // current folder page (e.g. "On this day") — lets arrow-key paging work
+  // over that set instead of over items the viewer was never shown.
+  const [lightboxOverride, setLightboxOverride] = useState<Item[] | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   const fileInput = useRef<HTMLInputElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
@@ -88,7 +97,12 @@ export function FileBrowser() {
   // Anything openable in the viewer, so arrow keys page through a
   // coherent set rather than skipping over folders.
   const viewable = useMemo(() => fileItems, [fileItems]);
-  const lightboxIndex = lightboxId ? viewable.findIndex((i) => i.id === lightboxId) : -1;
+  const lightboxList = lightboxOverride ?? viewable;
+  const lightboxIndex = lightboxId ? lightboxList.findIndex((i) => i.id === lightboxId) : -1;
+  const closeLightbox = () => {
+    setLightboxId(null);
+    setLightboxOverride(null);
+  };
 
   const guard = useCallback(async (fn: () => Promise<void>) => {
     setActionError(null);
@@ -130,6 +144,11 @@ export function FileBrowser() {
         searchInput.current?.focus();
         return;
       }
+      if (e.key === "?" && !typing && dialog.kind === "none" && !lightboxId) {
+        e.preventDefault();
+        setShortcutsOpen(true);
+        return;
+      }
       if (typing || dialog.kind !== "none" || lightboxId) return;
 
       if ((e.key === "a" || e.key === "A") && (e.metaKey || e.ctrlKey)) {
@@ -149,11 +168,30 @@ export function FileBrowser() {
     return () => window.removeEventListener("keydown", onKey);
   }, [b, dialog.kind, lightboxId, view]);
 
+  // --- paste-to-upload --------------------------------------------------
+
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (view === "trash" || dialog.kind !== "none" || lightboxId) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+      const files = Array.from(e.clipboardData?.files ?? []);
+      if (files.length === 0) return;
+      e.preventDefault();
+      void guard(() => b.upload(files));
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [view, dialog.kind, lightboxId, guard, b]);
+
   // --- actions ---------------------------------------------------------
 
   const openItem = (item: Item) => {
     if (item.type === "folder") b.openFolder(item);
-    else setLightboxId(item.id);
+    else {
+      setLightboxOverride(null);
+      setLightboxId(item.id);
+    }
   };
 
   const onDrop = (e: React.DragEvent) => {
@@ -209,6 +247,15 @@ export function FileBrowser() {
         <div style={{ padding: "24px clamp(16px, 4vw, 40px)", width: "100%", maxWidth: 1600, margin: "0 auto" }}>
           {view === "files" && !b.query && <Breadcrumbs browser={b} />}
 
+          {view === "files" && !b.query && b.trail.length === 1 && (
+            <OnThisDay
+              onOpen={(item, all) => {
+                setLightboxOverride(all);
+                setLightboxId(item.id);
+              }}
+            />
+          )}
+
           <FormError message={actionError ?? error} />
 
           {uploads.length > 0 && (
@@ -240,7 +287,10 @@ export function FileBrowser() {
               photos={items}
               selected={selected}
               onToggleSelect={b.toggleSelected}
-              onOpen={(item) => setLightboxId(item.id)}
+              onOpen={(item) => {
+                setLightboxOverride(null);
+                setLightboxId(item.id);
+              }}
             />
           ) : (
             <>
@@ -420,12 +470,16 @@ export function FileBrowser() {
 
       {lightboxIndex >= 0 && (
         <Lightbox
-          items={viewable}
+          items={lightboxList}
           index={lightboxIndex}
-          onClose={() => setLightboxId(null)}
-          onNavigate={(next) => setLightboxId(viewable[next]?.id ?? null)}
+          onClose={closeLightbox}
+          onNavigate={(next) => setLightboxId(lightboxList[next]?.id ?? null)}
           onDownload={(item) => void guard(() => b.download(item))}
         />
+      )}
+
+      {shortcutsOpen && (
+        <KeyboardShortcutsPanel onClose={() => setShortcutsOpen(false)} />
       )}
     </div>
   );
@@ -666,6 +720,8 @@ function Toolbar({
 }
 
 function Breadcrumbs({ browser }: { browser: ReturnType<typeof useFiles> }) {
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
+
   return (
     <nav
       aria-label="Breadcrumb"
@@ -694,10 +750,140 @@ function Breadcrumbs({ browser }: { browser: ReturnType<typeof useFiles> }) {
             >
               {crumb.name}
             </button>
+            <BreadcrumbDropdown
+              crumb={crumb}
+              open={openIndex === index}
+              onToggle={() => setOpenIndex(openIndex === index ? null : index)}
+              onClose={() => setOpenIndex(null)}
+              onJump={(item) => {
+                setOpenIndex(null);
+                browser.navigateTo(index);
+                browser.openFolder(item);
+              }}
+            />
           </React.Fragment>
         );
       })}
     </nav>
+  );
+}
+
+/** Lets you jump straight into a sibling of any ancestor folder, instead
+ * of navigating there and then clicking in one level at a time. */
+function BreadcrumbDropdown({
+  crumb,
+  open,
+  onToggle,
+  onClose,
+  onJump,
+}: {
+  crumb: Crumb;
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onJump: (folder: Item) => void;
+}) {
+  const { token } = useAuth();
+  const [folders, setFolders] = useState<Item[] | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open || !token) return;
+    let active = true;
+    filesApi
+      .list(token, crumb.id, { limit: 200, sort: "name" })
+      .then((page) => {
+        if (active) setFolders(page.items.filter((i) => i.type === "folder"));
+      })
+      .catch(() => active && setFolders([]));
+    return () => {
+      active = false;
+    };
+  }, [open, token, crumb.id]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
+  }, [open, onClose]);
+
+  return (
+    <div ref={ref} style={{ position: "relative", display: "flex" }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-label={`Jump to a subfolder of ${crumb.name}`}
+        aria-expanded={open}
+        style={{
+          background: "transparent",
+          border: "none",
+          padding: 2,
+          cursor: "pointer",
+          color: "var(--text-low)",
+          display: "flex",
+        }}
+      >
+        <ChevronDown size={13} />
+      </button>
+
+      {open && (
+        <div
+          className="card"
+          role="menu"
+          style={{
+            position: "absolute",
+            top: "100%",
+            left: 0,
+            marginTop: 4,
+            minWidth: 200,
+            maxHeight: 280,
+            overflowY: "auto",
+            padding: 6,
+            zIndex: 40,
+          }}
+        >
+          {folders === null ? (
+            <p style={{ padding: 10, fontSize: 13, color: "var(--text-med)" }}>Loading…</p>
+          ) : folders.length === 0 ? (
+            <p style={{ padding: 10, fontSize: 13, color: "var(--text-med)" }}>
+              No subfolders here.
+            </p>
+          ) : (
+            folders.map((folder) => (
+              <button
+                key={folder.id}
+                type="button"
+                role="menuitem"
+                onClick={() => onJump(folder)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  width: "100%",
+                  padding: "8px 10px",
+                  background: "transparent",
+                  border: "none",
+                  borderRadius: 6,
+                  color: "var(--text-high)",
+                  fontSize: 14,
+                  textAlign: "left",
+                  cursor: "pointer",
+                  font: "inherit",
+                }}
+              >
+                <FolderIcon size={15} color="var(--primary)" />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {folder.name}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -228,6 +228,16 @@ async def change_password(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.post("/me/sign-out-everywhere", status_code=status.HTTP_204_NO_CONTENT)
+async def sign_out_everywhere(
+    current_user: UserInDB = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service),
+) -> Response:
+    """Revoke every session for this account, on every device."""
+    await auth_service.sign_out_everywhere(current_user.id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
 async def forgot_password(payload: ForgotPasswordRequest) -> dict:
     # Always return the same generic response regardless of whether the email

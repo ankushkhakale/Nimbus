@@ -1,5 +1,7 @@
 """Pagination, the global photo library, search, and bulk operations."""
 
+from datetime import datetime, timedelta, timezone
+
 FILES = "/api/v1/files"
 
 
@@ -362,3 +364,67 @@ def test_preview_is_isolated_per_user(client, auth_headers, fake_storage, fake_i
     b = auth_headers("b@example.com")
     item = _ready_file(client, a, fake_storage, fake_item_repo, "private.jpg", None, "image/jpeg")
     assert client.get(f"{FILES}/{item}/preview-url", headers=b).status_code == 404
+
+
+# --- on this day ----------------------------------------------------------
+
+def _set_taken_at(repo, item_id, taken_at):
+    repo._items[item_id] = repo._items[item_id].model_copy(update={"taken_at": taken_at})
+
+
+def test_on_this_day_matches_same_month_and_day_in_a_past_year(
+    client, auth_headers, fake_storage, fake_item_repo
+):
+    h = auth_headers()
+    today = datetime.now(timezone.utc)
+    item = _ready_file(client, h, fake_storage, fake_item_repo, "then.jpg", None, "image/jpeg")
+    _set_taken_at(fake_item_repo, item, today.replace(year=today.year - 3))
+
+    body = client.get(f"{FILES}/on-this-day", headers=h).json()
+    assert [i["id"] for i in body] == [item]
+
+
+def test_on_this_day_excludes_this_year_and_other_days(
+    client, auth_headers, fake_storage, fake_item_repo
+):
+    h = auth_headers()
+    today = datetime.now(timezone.utc)
+    this_year = _ready_file(client, h, fake_storage, fake_item_repo, "now.jpg", None, "image/jpeg")
+    _set_taken_at(fake_item_repo, this_year, today)
+
+    # A different calendar day, one year ago — must not match even though
+    # the year condition alone would pass.
+    other_day = _ready_file(client, h, fake_storage, fake_item_repo, "other.jpg", None, "image/jpeg")
+    _set_taken_at(fake_item_repo, other_day, today.replace(year=today.year - 1) - timedelta(days=10))
+
+    body = client.get(f"{FILES}/on-this-day", headers=h).json()
+    assert body == []
+
+
+def test_on_this_day_excludes_non_images_and_pending_uploads(
+    client, auth_headers, fake_storage, fake_item_repo
+):
+    h = auth_headers()
+    today = datetime.now(timezone.utc)
+    doc = _ready_file(client, h, fake_storage, fake_item_repo, "then.pdf", None, "application/pdf")
+    _set_taken_at(fake_item_repo, doc, today.replace(year=today.year - 1))
+
+    pending_id = client.post(
+        f"{FILES}/upload-url",
+        json={"name": "pending.jpg", "parent_id": None, "content_type": "image/jpeg"},
+        headers=h,
+    ).json()["item"]["id"]
+    _set_taken_at(fake_item_repo, pending_id, today.replace(year=today.year - 1))
+
+    body = client.get(f"{FILES}/on-this-day", headers=h).json()
+    assert body == []
+
+
+def test_on_this_day_is_isolated_per_user(client, auth_headers, fake_storage, fake_item_repo):
+    a = auth_headers("a@example.com")
+    b = auth_headers("b@example.com")
+    today = datetime.now(timezone.utc)
+    item = _ready_file(client, a, fake_storage, fake_item_repo, "mine.jpg", None, "image/jpeg")
+    _set_taken_at(fake_item_repo, item, today.replace(year=today.year - 1))
+
+    assert client.get(f"{FILES}/on-this-day", headers=b).json() == []

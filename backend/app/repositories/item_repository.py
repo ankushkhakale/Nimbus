@@ -173,6 +173,38 @@ class ItemRepository:
         total = await self._collection.count_documents(query)
         return items, total
 
+    async def on_this_day(self, user_id: str) -> list[Item]:
+        """Images captured on this month/day in a previous year.
+
+        An aggregation rather than a Python-side filter — walking every
+        image to check its date would not scale past a small library.
+        """
+        today = datetime.now(timezone.utc)
+        pipeline = [
+            {
+                "$match": self._live(
+                    user_id,
+                    type=ItemType.FILE.value,
+                    status=UploadStatus.READY.value,
+                    content_type={"$regex": "^image/"},
+                    taken_at={"$ne": None},
+                )
+            },
+            {
+                "$match": {
+                    "$expr": {
+                        "$and": [
+                            {"$eq": [{"$month": "$taken_at"}, today.month]},
+                            {"$eq": [{"$dayOfMonth": "$taken_at"}, today.day]},
+                            {"$ne": [{"$year": "$taken_at"}, today.year]},
+                        ]
+                    }
+                }
+            },
+            {"$sort": {"taken_at": -1}},
+        ]
+        return [_doc_to_item(d) async for d in self._collection.aggregate(pipeline)]
+
     async def list_recent(self, user_id: str, *, limit: int = 20) -> list[Item]:
         query = self._live(user_id, type=ItemType.FILE.value, status=UploadStatus.READY.value)
         cursor = self._collection.find(query).sort([("updated_at", -1)]).limit(limit)
