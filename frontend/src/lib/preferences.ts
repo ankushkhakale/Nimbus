@@ -14,6 +14,7 @@ const REDUCED_MOTION_KEY = "nimbus:reduced-motion";
 const SORT_PREFIX = "nimbus:sort:";
 const VIEW_MODE_KEY = "nimbus:view-mode";
 const SAVED_SEARCHES_KEY = "nimbus:saved-searches";
+const STORAGE_BANNER_PREFIX = "nimbus:storage-banner-dismissed:";
 
 export interface SavedSearch {
   id: string;
@@ -100,4 +101,15 @@ export function addSavedSearch(search: Omit<SavedSearch, "id">): SavedSearch {
 
 export function removeSavedSearch(id: string): void {
   write(SAVED_SEARCHES_KEY, JSON.stringify(getSavedSearches().filter((s) => s.id !== id)));
+}
+
+// Dismissal is keyed by severity tier ("warning" / "critical") so that
+// dismissing the gentler banner doesn't also suppress the urgent one if
+// usage keeps climbing.
+export function isStorageBannerDismissed(level: string): boolean {
+  return read(STORAGE_BANNER_PREFIX + level) === "1";
+}
+
+export function dismissStorageBanner(level: string): void {
+  write(STORAGE_BANNER_PREFIX + level, "1");
 }
