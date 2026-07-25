@@ -304,11 +304,16 @@ class FakeItemRepository:
         self._items[item.id] = item
         return item
 
-    async def mark_ready(self, user_id: str, item_id: str, size: int) -> Item | None:
+    async def mark_ready(
+        self, user_id: str, item_id: str, size: int, *, content_type: str | None = None
+    ) -> Item | None:
         item = await self.get(user_id, item_id)
         if item is None:
             return None
-        updated = item.model_copy(update={"status": UploadStatus.READY, "size": size})
+        fields: dict = {"status": UploadStatus.READY, "size": size}
+        if content_type is not None:
+            fields["content_type"] = content_type
+        updated = item.model_copy(update=fields)
         self._items[item_id] = updated
         return updated
 

@@ -225,6 +225,14 @@ class DownloadUrlResponse(BaseModel):
     expires_in: int
 
 
+class ReplaceUploadUrlResponse(BaseModel):
+    """Presigned PUT to overwrite an image's bytes in place, for the
+    in-browser editor. A destructive replace — no versioning yet."""
+
+    upload_url: str
+    expires_in: int
+
+
 class ThumbnailUrlResponse(BaseModel):
     url: str
     # False when no thumbnail exists yet and the original is served

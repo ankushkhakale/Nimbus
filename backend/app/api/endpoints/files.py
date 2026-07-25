@@ -29,6 +29,7 @@ from app.schemas.files import (
     ItemResponse,
     MoveRequest,
     PageResponse,
+    ReplaceUploadUrlResponse,
     SignedUrl,
     SignedUrlsResponse,
     ThumbnailUrlResponse,
@@ -378,6 +379,31 @@ async def complete_upload(
     files: FileService = Depends(get_file_service),
 ) -> ItemResponse:
     item = await files.complete_upload(user.id, item_id)
+    return ItemResponse.from_item(item)
+
+
+@router.post("/{item_id}/replace-upload-url", response_model=ReplaceUploadUrlResponse)
+async def request_replace_upload_url(
+    item_id: str,
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> ReplaceUploadUrlResponse:
+    """Presigned URL to overwrite an image's bytes in place — the
+    in-browser editor's save path. Destructive; the caller must confirm
+    with the user before uploading to it."""
+    url = await files.start_replace(user.id, item_id)
+    return ReplaceUploadUrlResponse(
+        upload_url=url, expires_in=settings.PRESIGNED_URL_EXPIRE_SECONDS
+    )
+
+
+@router.post("/{item_id}/complete-replace", response_model=ItemResponse)
+async def complete_replace(
+    item_id: str,
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> ItemResponse:
+    item = await files.complete_upload(user.id, item_id, content_type="image/jpeg")
     return ItemResponse.from_item(item)
 
 

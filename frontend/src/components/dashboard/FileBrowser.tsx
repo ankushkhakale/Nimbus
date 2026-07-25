@@ -536,6 +536,7 @@ export function FileBrowser() {
           onClose={closeLightbox}
           onNavigate={(next) => setLightboxId(lightboxList[next]?.id ?? null)}
           onDownload={(item) => void guard(() => b.download(item))}
+          onEdited={() => void b.reload()}
         />
       )}
 

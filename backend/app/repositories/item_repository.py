@@ -319,16 +319,19 @@ class ItemRepository:
         result = await self._collection.insert_one(doc)
         return _doc_to_item({**doc, "_id": result.inserted_id})
 
-    async def mark_ready(self, user_id: str, item_id: str, size: int) -> Item | None:
+    async def mark_ready(
+        self, user_id: str, item_id: str, size: int, *, content_type: str | None = None
+    ) -> Item | None:
+        fields: dict = {
+            "status": UploadStatus.READY.value,
+            "size": size,
+            "updated_at": datetime.now(timezone.utc),
+        }
+        if content_type is not None:
+            fields["content_type"] = content_type
         doc = await self._collection.find_one_and_update(
             {"_id": ObjectId(item_id), "user_id": user_id},
-            {
-                "$set": {
-                    "status": UploadStatus.READY.value,
-                    "size": size,
-                    "updated_at": datetime.now(timezone.utc),
-                }
-            },
+            {"$set": fields},
             return_document=True,
         )
         return _doc_to_item(doc) if doc else None
