@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.api import deps
 from app.api.api_router import api_router
 from app.models.item import Item, ItemType, UploadStatus
+from app.models.share import Share
 from app.models.user import UserInDB
 
 
@@ -375,6 +376,66 @@ class FakeItemRepository:
         return found
 
 
+class FakeShareRepository:
+    """In-memory stand-in for ShareRepository."""
+
+    def __init__(self):
+        self._shares: dict[str, Share] = {}
+        self._next = 1
+
+    def _new_id(self) -> str:
+        share_id = f"{self._next:024x}"
+        self._next += 1
+        return share_id
+
+    async def create(self, owner_id, item_id, token, *, recipient_emails, expires_at) -> Share:
+        share_id = self._new_id()
+        share = Share(
+            id=share_id,
+            owner_id=owner_id,
+            item_id=item_id,
+            token=token,
+            recipient_emails=recipient_emails,
+            expires_at=expires_at,
+            revoked_at=None,
+        )
+        self._shares[share_id] = share
+        return share
+
+    async def get_by_token(self, token: str) -> Share | None:
+        return next((s for s in self._shares.values() if s.token == token), None)
+
+    async def get(self, owner_id: str, share_id: str) -> Share | None:
+        share = self._shares.get(share_id)
+        if not share or share.owner_id != owner_id:
+            return None
+        return share
+
+    async def list_by_owner(self, owner_id: str) -> list[Share]:
+        mine = [s for s in self._shares.values() if s.owner_id == owner_id]
+        return sorted(mine, key=lambda s: s.created_at, reverse=True)
+
+    async def list_received(self, email: str) -> list[Share]:
+        now = datetime.now(timezone.utc)
+        hits = [
+            s
+            for s in self._shares.values()
+            if email in s.recipient_emails
+            and s.revoked_at is None
+            and (s.expires_at is None or s.expires_at > now)
+        ]
+        return sorted(hits, key=lambda s: s.created_at, reverse=True)
+
+    async def revoke(self, owner_id: str, share_id: str) -> bool:
+        share = self._shares.get(share_id)
+        if not share or share.owner_id != owner_id or share.revoked_at is not None:
+            return False
+        self._shares[share_id] = share.model_copy(
+            update={"revoked_at": datetime.now(timezone.utc)}
+        )
+        return True
+
+
 class FakeStorage:
     """Object storage stub; `uploaded` stands in for what S3 holds."""
 
@@ -462,17 +523,23 @@ def fake_item_repo() -> FakeItemRepository:
 
 
 @pytest.fixture
+def fake_share_repo() -> FakeShareRepository:
+    return FakeShareRepository()
+
+
+@pytest.fixture
 def fake_storage() -> FakeStorage:
     return FakeStorage()
 
 
 @pytest.fixture
-def client(fake_user_repo, fake_item_repo, fake_storage, fake_refresh_repo) -> TestClient:
+def client(fake_user_repo, fake_item_repo, fake_share_repo, fake_storage, fake_refresh_repo) -> TestClient:
     app = FastAPI()
     app.include_router(api_router, prefix="/api/v1")
     app.dependency_overrides[deps.get_user_repository] = lambda: fake_user_repo
     app.dependency_overrides[deps.get_refresh_token_repository] = lambda: fake_refresh_repo
     app.dependency_overrides[deps.get_item_repository] = lambda: fake_item_repo
+    app.dependency_overrides[deps.get_share_repository] = lambda: fake_share_repo
     app.dependency_overrides[deps.get_storage] = lambda: fake_storage
     # https, not http: the refresh cookie is set Secure, and a client
     # correctly refuses to send Secure cookies over plain HTTP. Testing
