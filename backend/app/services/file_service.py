@@ -286,7 +286,15 @@ class FileService:
     # --- mutation ------------------------------------------------------
 
     async def update(
-        self, user_id: str, item_id: str, name: str | None, parent_id: str | None, move: bool
+        self,
+        user_id: str,
+        item_id: str,
+        name: str | None,
+        parent_id: str | None,
+        move: bool,
+        *,
+        set_color: bool = False,
+        color: str | None = None,
     ) -> Item:
         item = await self._require_item(user_id, item_id)
         if move:
@@ -298,11 +306,30 @@ class FileService:
             name = await self._unique_name(user_id, target_parent, name)
 
         updated = await self._items.rename_or_move(
-            user_id, item_id, name=name, parent_id=parent_id, move=move
+            user_id,
+            item_id,
+            name=name,
+            parent_id=parent_id,
+            move=move,
+            set_color=set_color,
+            color=color,
         )
         if updated is None:  # pragma: no cover
             raise self._not_found()
         return updated
+
+    async def star(self, user_id: str, item_ids: list[str]) -> int:
+        return await self._items.set_starred(user_id, item_ids, True)
+
+    async def unstar(self, user_id: str, item_ids: list[str]) -> int:
+        return await self._items.set_starred(user_id, item_ids, False)
+
+    async def list_starred(
+        self, user_id: str, *, offset: int, limit: int
+    ) -> tuple[list[Item], int]:
+        return await self._items.list_starred(
+            user_id, offset=max(0, offset), limit=self._clamp(limit)
+        )
 
     async def move_many(self, user_id: str, item_ids: list[str], parent_id: str | None) -> int:
         await self._validate_parent(user_id, parent_id)

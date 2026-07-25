@@ -22,7 +22,7 @@ import { useAuth } from "./auth-context";
 import { notify } from "./notify";
 import { getDefaultView, getFolderSort, setFolderSort } from "./preferences";
 
-export type View = "files" | "photos" | "videos" | "recent" | "trash";
+export type View = "files" | "photos" | "videos" | "starred" | "recent" | "trash";
 
 export interface Crumb {
   id: string | null;
@@ -98,6 +98,8 @@ export function useFiles() {
           return filesApi.photos(token, opts);
         case "videos":
           return filesApi.videos(token, opts);
+        case "starred":
+          return filesApi.starred(token, opts);
         case "trash":
           return filesApi.trash(token, opts);
         case "recent": {
@@ -223,6 +225,25 @@ export function useFiles() {
     async (itemIds: string[], parentId: string | null) => {
       if (!token || itemIds.length === 0) return;
       await filesApi.moveMany(token, itemIds, parentId);
+      await reload();
+    },
+    [token, reload]
+  );
+
+  const setColor = useCallback(
+    async (item: Item, color: Item["color"]) => {
+      if (!token) return;
+      await filesApi.update(token, item.id, { color });
+      await reload();
+    },
+    [token, reload]
+  );
+
+  const toggleStarred = useCallback(
+    async (item: Item) => {
+      if (!token) return;
+      if (item.starred) await filesApi.unstar(token, [item.id]);
+      else await filesApi.star(token, [item.id]);
       await reload();
     },
     [token, reload]
@@ -361,6 +382,8 @@ export function useFiles() {
     // mutations
     createFolder,
     rename,
+    setColor,
+    toggleStarred,
     moveTo,
     trashItems,
     restoreItems,

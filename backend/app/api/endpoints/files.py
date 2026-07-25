@@ -125,6 +125,18 @@ async def on_this_day(
     return [ItemResponse.from_item(i) for i in await files.on_this_day(user.id)]
 
 
+@router.get("/starred", response_model=PageResponse)
+async def list_starred(
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=500),
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> PageResponse:
+    """Every starred item, file or folder, across all folders."""
+    items, total = await files.list_starred(user.id, offset=offset, limit=limit)
+    return _page(items, total, offset, limit)
+
+
 @router.get("/trash", response_model=PageResponse)
 async def list_trash(
     offset: int = Query(default=0, ge=0),
@@ -237,6 +249,24 @@ async def move_items(
     )
 
 
+@router.post("/star", response_model=BulkResultResponse)
+async def star_items(
+    payload: BulkItemsRequest,
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> BulkResultResponse:
+    return BulkResultResponse(affected=await files.star(user.id, payload.item_ids))
+
+
+@router.post("/unstar", response_model=BulkResultResponse)
+async def unstar_items(
+    payload: BulkItemsRequest,
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> BulkResultResponse:
+    return BulkResultResponse(affected=await files.unstar(user.id, payload.item_ids))
+
+
 @router.post("/trash", response_model=BulkResultResponse)
 async def trash_items(
     payload: BulkItemsRequest,
@@ -321,10 +351,19 @@ async def update_item(
     user: UserInDB = Depends(get_current_user),
     files: FileService = Depends(get_file_service),
 ) -> ItemResponse:
-    # parent_id=null means "move to root", so a move is only performed
-    # when the client actually sent the field.
+    # parent_id=null means "move to root", and color=null means "clear
+    # it" — both only apply when the client actually sent the field.
     move = "parent_id" in payload.model_fields_set
-    item = await files.update(user.id, item_id, payload.name, payload.parent_id, move)
+    set_color = "color" in payload.model_fields_set
+    item = await files.update(
+        user.id,
+        item_id,
+        payload.name,
+        payload.parent_id,
+        move,
+        set_color=set_color,
+        color=payload.color,
+    )
     return ItemResponse.from_item(item)
 
 

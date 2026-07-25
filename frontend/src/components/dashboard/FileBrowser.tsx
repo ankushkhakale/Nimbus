@@ -12,11 +12,15 @@ import {
   FolderPlus,
   Folder as FolderIcon,
   Image as ImageIcon,
+  LayoutGrid,
+  List,
   Loader2,
   Music,
+  Palette,
   Pencil,
   RotateCcw,
   Search,
+  Star,
   Trash2,
   Upload,
   Video,
@@ -27,9 +31,10 @@ import { Item, SortKey, files as filesApi } from "@/lib/api";
 import { formatBytes, formatRelativeDate } from "@/lib/format";
 import { Crumb, View, useFiles } from "@/lib/use-files";
 import { useAuth } from "@/lib/auth-context";
+import { ViewMode, getViewMode, setViewMode as persistViewMode } from "@/lib/preferences";
 import { FormError } from "@/components/FormError";
 import { UserMenu } from "@/components/UserMenu";
-import { ConfirmModal, PromptModal } from "@/components/ui/Modal";
+import { ConfirmModal, Modal, PromptModal } from "@/components/ui/Modal";
 import { OverflowMenu } from "@/components/ui/OverflowMenu";
 import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
 import { Lightbox } from "./Lightbox";
@@ -51,13 +56,27 @@ const NAV: { key: View; label: string; icon: React.ReactNode }[] = [
   { key: "files", label: "My Cloud", icon: <FolderIcon size={16} /> },
   { key: "photos", label: "Photos", icon: <ImageIcon size={16} /> },
   { key: "videos", label: "Videos", icon: <Video size={16} /> },
+  { key: "starred", label: "Starred", icon: <Star size={16} /> },
   { key: "recent", label: "Recent", icon: <Clock size={16} /> },
   { key: "trash", label: "Trash", icon: <Trash2 size={16} /> },
 ];
 
+// Named keys only (see ALLOWED_ITEM_COLORS on the backend) — the actual
+// hex values are a frontend-only styling choice.
+export const ITEM_COLOR_HEX: Record<string, string> = {
+  yellow: "#facc15",
+  blue: "#60a5fa",
+  green: "#4ade80",
+  red: "#f87171",
+  purple: "#c084fc",
+  pink: "#f472b6",
+  gray: "#9ca3af",
+};
+
 function iconFor(item: Item) {
   const ct = item.content_type ?? "";
-  if (item.type === "folder") return <FolderIcon size={18} color="var(--primary)" />;
+  const custom = item.color ? ITEM_COLOR_HEX[item.color] : undefined;
+  if (item.type === "folder") return <FolderIcon size={18} color={custom ?? "var(--primary)"} />;
   if (ct.startsWith("image/")) return <ImageIcon size={18} color="var(--text-med)" />;
   if (ct.startsWith("video/")) return <Video size={18} color="var(--text-med)" />;
   if (ct.startsWith("audio/")) return <Music size={18} color="var(--text-med)" />;
@@ -69,6 +88,7 @@ type DialogState =
   | { kind: "none" }
   | { kind: "newFolder" }
   | { kind: "rename"; item: Item }
+  | { kind: "color"; item: Item }
   | { kind: "trash"; items: Item[] }
   | { kind: "deleteForever"; items: Item[] }
   | { kind: "move"; items: Item[] };
@@ -85,6 +105,11 @@ export function FileBrowser() {
   const [lightboxOverride, setLightboxOverride] = useState<Item[] | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [viewMode, setViewModeState] = useState<ViewMode>(() => getViewMode());
+  const setViewMode = (mode: ViewMode) => {
+    setViewModeState(mode);
+    persistViewMode(mode);
+  };
 
   const fileInput = useRef<HTMLInputElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
@@ -231,6 +256,8 @@ export function FileBrowser() {
           onNewFolder={() => setDialog({ kind: "newFolder" })}
           onUploadClick={() => fileInput.current?.click()}
           onOpenSidebar={() => setSidebarOpen(true)}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
         />
 
         <input
@@ -315,6 +342,8 @@ export function FileBrowser() {
                         onToggleSelect={b.toggleSelected}
                         onRename={() => setDialog({ kind: "rename", item: folder })}
                         onTrash={() => setDialog({ kind: "trash", items: [folder] })}
+                        onToggleStar={() => void guard(() => b.toggleStarred(folder))}
+                        onChangeColor={() => setDialog({ kind: "color", item: folder })}
                       />
                     ))}
                   </div>
@@ -324,22 +353,32 @@ export function FileBrowser() {
               {fileItems.length > 0 && (
                 <>
                   <h2 style={sectionHeading}>Files</h2>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {fileItems.map((file) => (
-                      <FileRow
-                        key={file.id}
-                        item={file}
-                        isSelected={selected.has(file.id)}
-                        readOnly={view === "trash"}
-                        onOpen={() => openItem(file)}
-                        onToggleSelect={b.toggleSelected}
-                        onDownload={() => void guard(() => b.download(file))}
-                        onRename={() => setDialog({ kind: "rename", item: file })}
-                        onTrash={() => setDialog({ kind: "trash", items: [file] })}
-                        onRestore={() => void guard(() => b.restoreItems([file.id]))}
-                      />
-                    ))}
-                  </div>
+                  {view === "files" && viewMode === "grid" ? (
+                    <FileGridView
+                      items={fileItems}
+                      selected={selected}
+                      onOpen={openItem}
+                      onToggleSelect={b.toggleSelected}
+                    />
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {fileItems.map((file) => (
+                        <FileRow
+                          key={file.id}
+                          item={file}
+                          isSelected={selected.has(file.id)}
+                          readOnly={view === "trash"}
+                          onOpen={() => openItem(file)}
+                          onToggleSelect={b.toggleSelected}
+                          onDownload={() => void guard(() => b.download(file))}
+                          onRename={() => setDialog({ kind: "rename", item: file })}
+                          onTrash={() => setDialog({ kind: "trash", items: [file] })}
+                          onRestore={() => void guard(() => b.restoreItems([file.id]))}
+                          onToggleStar={() => void guard(() => b.toggleStarred(file))}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </>
               )}
             </>
@@ -409,6 +448,19 @@ export function FileBrowser() {
           void guard(() => b.rename(item, name));
         }}
       />
+      )}
+
+      {dialog.kind === "color" && (
+        <ColorPickerModal
+          item={dialog.item}
+          onCancel={closeDialog}
+          onPick={(color) => {
+            if (dialog.kind !== "color") return;
+            const item = dialog.item;
+            closeDialog();
+            void guard(() => b.setColor(item, color));
+          }}
+        />
       )}
 
       <ConfirmModal
@@ -486,6 +538,69 @@ export function FileBrowser() {
 }
 
 /* ------------------------------------------------------------------ */
+
+function ColorPickerModal({
+  item,
+  onCancel,
+  onPick,
+}: {
+  item: Item;
+  onCancel: () => void;
+  onPick: (color: Item["color"]) => void;
+}) {
+  return (
+    <Modal open title={`Color for "${item.name}"`} onClose={onCancel}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+        {(Object.entries(ITEM_COLOR_HEX) as [NonNullable<Item["color"]>, string][]).map(
+          ([key, hex]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onPick(key)}
+              aria-label={key}
+              title={key}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: "50%",
+                background: hex,
+                border:
+                  item.color === key
+                    ? "3px solid var(--text-high)"
+                    : "1px solid var(--hairline-strong)",
+                cursor: "pointer",
+              }}
+            />
+          )
+        )}
+        <button
+          type="button"
+          onClick={() => onPick(null)}
+          aria-label="No color"
+          title="No color"
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: "50%",
+            background: "transparent",
+            border:
+              item.color === null
+                ? "3px solid var(--text-high)"
+                : "1px dashed var(--hairline-strong)",
+            color: "var(--text-med)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 16,
+          }}
+        >
+          <X size={16} />
+        </button>
+      </div>
+    </Modal>
+  );
+}
 
 function describe(items: Item[]): string {
   return items.length === 1 ? `“${items[0].name}”` : `${items.length} items`;
@@ -595,12 +710,16 @@ function Toolbar({
   onNewFolder,
   onUploadClick,
   onOpenSidebar,
+  viewMode,
+  onViewModeChange,
 }: {
   browser: ReturnType<typeof useFiles>;
   searchRef: React.RefObject<HTMLInputElement | null>;
   onNewFolder: () => void;
   onUploadClick: () => void;
   onOpenSidebar: () => void;
+  viewMode: ViewMode;
+  onViewModeChange: (mode: ViewMode) => void;
 }) {
   const readOnly = browser.view === "trash";
   return (
@@ -684,6 +803,50 @@ function Toolbar({
               </option>
             ))}
           </select>
+        )}
+
+        {browser.view === "files" && !browser.query && (
+          <div style={{ display: "flex", border: "1px solid var(--hairline-strong)", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
+            <button
+              type="button"
+              onClick={() => onViewModeChange("list")}
+              aria-label="List view"
+              aria-pressed={viewMode === "list"}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 38,
+                height: 38,
+                border: "none",
+                background: viewMode === "list" ? "var(--surface-elevated)" : "transparent",
+                color: viewMode === "list" ? "var(--text-high)" : "var(--text-med)",
+                cursor: "pointer",
+              }}
+            >
+              <List size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => onViewModeChange("grid")}
+              aria-label="Grid view"
+              aria-pressed={viewMode === "grid"}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 38,
+                height: 38,
+                border: "none",
+                borderLeft: "1px solid var(--hairline-strong)",
+                background: viewMode === "grid" ? "var(--surface-elevated)" : "transparent",
+                color: viewMode === "grid" ? "var(--text-high)" : "var(--text-med)",
+                cursor: "pointer",
+              }}
+            >
+              <LayoutGrid size={16} />
+            </button>
+          </div>
         )}
 
         {!readOnly && (
@@ -1057,6 +1220,8 @@ function FolderCard({
   onToggleSelect,
   onRename,
   onTrash,
+  onToggleStar,
+  onChangeColor,
 }: {
   item: Item;
   isSelected: boolean;
@@ -1065,6 +1230,8 @@ function FolderCard({
   onToggleSelect: (id: string, exclusive?: boolean) => void;
   onRename: () => void;
   onTrash: () => void;
+  onToggleStar: () => void;
+  onChangeColor: () => void;
 }) {
   return (
     <div
@@ -1089,7 +1256,12 @@ function FolderCard({
         aria-label={`Select ${item.name}`}
         style={{ accentColor: "var(--primary)", cursor: "pointer", flexShrink: 0 }}
       />
-      <FolderIcon size={18} color="var(--primary)" style={{ flexShrink: 0 }} />
+      <FolderIcon
+        size={18}
+        color={item.color ? ITEM_COLOR_HEX[item.color] : "var(--primary)"}
+        style={{ flexShrink: 0 }}
+      />
+      {item.starred && <Star size={13} color="var(--primary)" fill="var(--primary)" style={{ flexShrink: 0 }} />}
 
       <button
         type="button"
@@ -1121,6 +1293,12 @@ function FolderCard({
       {!readOnly && (
         <OverflowMenu
           actions={[
+            {
+              label: item.starred ? "Unstar" : "Star",
+              icon: <Star size={15} />,
+              onClick: onToggleStar,
+            },
+            { label: "Change color", icon: <Palette size={15} />, onClick: onChangeColor },
             { label: "Rename", icon: <Pencil size={15} />, onClick: onRename },
             {
               label: "Move to Trash",
@@ -1145,6 +1323,7 @@ function FileRow({
   onRename,
   onTrash,
   onRestore,
+  onToggleStar,
 }: {
   item: Item;
   isSelected: boolean;
@@ -1155,6 +1334,7 @@ function FileRow({
   onRename: () => void;
   onTrash: () => void;
   onRestore: () => void;
+  onToggleStar: () => void;
 }) {
   return (
     <div
@@ -1176,6 +1356,7 @@ function FileRow({
         style={{ accentColor: "var(--primary)", cursor: "pointer" }}
       />
       {iconFor(item)}
+      {item.starred && <Star size={13} color="var(--primary)" fill="var(--primary)" style={{ flexShrink: 0 }} />}
 
       <button
         type="button"
@@ -1228,6 +1409,11 @@ function FileRow({
             </IconButton>
             <OverflowMenu
               actions={[
+                {
+                  label: item.starred ? "Unstar" : "Star",
+                  icon: <Star size={15} />,
+                  onClick: onToggleStar,
+                },
                 { label: "Rename", icon: <Pencil size={15} />, onClick: onRename },
                 {
                   label: "Move to Trash",
@@ -1240,6 +1426,131 @@ function FileRow({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function FileGridView({
+  items,
+  selected,
+  onOpen,
+  onToggleSelect,
+}: {
+  items: Item[];
+  selected: Set<string>;
+  onOpen: (item: Item) => void;
+  onToggleSelect: (id: string, exclusive?: boolean) => void;
+}) {
+  const { token } = useAuth();
+  const [urls, setUrls] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!token) return;
+    const images = items.filter((i) => (i.content_type ?? "").startsWith("image/"));
+    const missing = images.map((i) => i.id).filter((id) => !(id in urls));
+    if (missing.length === 0) return;
+    let active = true;
+    filesApi
+      .thumbnailUrls(token, missing)
+      .then(({ urls: signed }) => {
+        if (!active) return;
+        setUrls((prev) => ({
+          ...prev,
+          ...Object.fromEntries(signed.map((s) => [s.item_id, s.url])),
+        }));
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+    // `urls` intentionally excluded — including it would re-fetch on
+    // every successful batch and loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, items]);
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+        gap: 10,
+      }}
+    >
+      {items.map((item) => (
+        <div
+          key={item.id}
+          role="button"
+          tabIndex={0}
+          title={item.name}
+          onClick={(e) => (e.metaKey || e.ctrlKey ? onToggleSelect(item.id) : onOpen(item))}
+          className="card animate-hover"
+          style={{
+            padding: 10,
+            cursor: "pointer",
+            outline: selected.has(item.id) ? "2px solid var(--primary)" : "none",
+            outlineOffset: -1,
+          }}
+        >
+          <div
+            style={{
+              position: "relative",
+              aspectRatio: "1 / 1",
+              borderRadius: "var(--radius-md)",
+              overflow: "hidden",
+              background: "var(--surface-elevated)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: 8,
+            }}
+          >
+            {urls[item.id] ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={urls[item.id]}
+                alt={item.name}
+                loading="lazy"
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              />
+            ) : (
+              iconFor(item)
+            )}
+            {item.starred && (
+              <Star
+                size={13}
+                color="var(--primary)"
+                fill="var(--primary)"
+                style={{ position: "absolute", top: 6, right: 6 }}
+              />
+            )}
+            <input
+              type="checkbox"
+              checked={selected.has(item.id)}
+              onChange={() => onToggleSelect(item.id)}
+              onClick={(e) => e.stopPropagation()}
+              aria-label={`Select ${item.name}`}
+              style={{
+                position: "absolute",
+                top: 6,
+                left: 6,
+                accentColor: "var(--primary)",
+                cursor: "pointer",
+              }}
+            />
+          </div>
+          <p
+            style={{
+              fontSize: 13,
+              color: "var(--text-high)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {item.name}
+          </p>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1294,6 +1605,8 @@ function EmptyState({ view, query }: { view: View; query: string }) {
     ? ["No photos yet", "Upload images and they'll be grouped by date taken."]
     : view === "videos"
     ? ["No videos yet", "Upload videos and they'll show up here, newest first."]
+    : view === "starred"
+    ? ["Nothing starred yet", "Star a file or folder and it'll show up here."]
     : view === "recent"
     ? ["Nothing recent", "Files you upload or change will show up here."]
     : ["This folder is empty", "Drag files anywhere here, or use the Upload button."];

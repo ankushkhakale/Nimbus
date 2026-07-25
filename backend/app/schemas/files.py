@@ -10,6 +10,17 @@ from app.models.item import Item, ItemType, UploadStatus
 _ILLEGAL_NAME_CHARS = {"/", "\\", "\x00"}
 _RESERVED_NAMES = {".", ".."}
 
+# A fixed palette rather than a free-text color — this value goes straight
+# into a client-side inline style, so accepting arbitrary strings would be
+# a CSS-injection surface for no real benefit over a curated set.
+ALLOWED_ITEM_COLORS = {"yellow", "blue", "green", "red", "purple", "pink", "gray"}
+
+
+def _validate_color(value: str | None) -> str | None:
+    if value is not None and value not in ALLOWED_ITEM_COLORS:
+        raise ValueError(f"Color must be one of: {', '.join(sorted(ALLOWED_ITEM_COLORS))}.")
+    return value
+
 
 def _validate_name(value: str) -> str:
     cleaned = value.strip()
@@ -46,16 +57,24 @@ class UploadUrlRequest(BaseModel):
 
 
 class UpdateItemRequest(BaseModel):
-    """Rename and/or move. `parent_id` is only applied when explicitly sent,
-    since null is itself meaningful (move to root)."""
+    """Rename, move, and/or recolor. `parent_id` and `color` are only
+    applied when explicitly sent — for both, null is itself meaningful
+    (move to root; clear the color), so "absent" and "sent as null" must
+    stay distinguishable via `model_fields_set`."""
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
     parent_id: str | None = None
+    color: str | None = None
 
     @field_validator("name")
     @classmethod
     def check_name(cls, v: str | None) -> str | None:
         return _validate_name(v) if v is not None else None
+
+    @field_validator("color")
+    @classmethod
+    def check_color(cls, v: str | None) -> str | None:
+        return _validate_color(v)
 
 
 class ItemResponse(BaseModel):
@@ -67,6 +86,8 @@ class ItemResponse(BaseModel):
     content_type: str | None
     status: UploadStatus | None
     taken_at: datetime | None
+    starred: bool
+    color: str | None
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None = None
@@ -84,6 +105,8 @@ class ItemResponse(BaseModel):
             content_type=item.content_type,
             status=item.status,
             taken_at=item.taken_at,
+            starred=item.starred,
+            color=item.color,
             created_at=item.created_at,
             updated_at=item.updated_at,
             deleted_at=item.deleted_at,

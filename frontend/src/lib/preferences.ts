@@ -12,8 +12,11 @@ import type { View } from "./use-files";
 const DEFAULT_VIEW_KEY = "nimbus:default-view";
 const REDUCED_MOTION_KEY = "nimbus:reduced-motion";
 const SORT_PREFIX = "nimbus:sort:";
+const VIEW_MODE_KEY = "nimbus:view-mode";
 
-const VALID_VIEWS: View[] = ["files", "photos", "videos", "recent", "trash"];
+const VALID_VIEWS: View[] = ["files", "photos", "videos", "starred", "recent", "trash"];
+
+export type ViewMode = "list" | "grid";
 
 function read(key: string): string | null {
   if (typeof window === "undefined") return null;
@@ -59,4 +62,12 @@ export function getFolderSort(folderId: string | null): SortKey | null {
 
 export function setFolderSort(folderId: string | null, sort: SortKey): void {
   write(SORT_PREFIX + (folderId ?? "root"), sort);
+}
+
+export function getViewMode(): ViewMode {
+  return read(VIEW_MODE_KEY) === "grid" ? "grid" : "list";
+}
+
+export function setViewMode(mode: ViewMode): void {
+  write(VIEW_MODE_KEY, mode);
 }

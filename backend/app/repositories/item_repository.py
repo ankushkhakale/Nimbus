@@ -36,6 +36,8 @@ def _doc_to_item(doc: dict) -> Item:
         content_type=doc.get("content_type"),
         status=doc.get("status"),
         taken_at=doc.get("taken_at"),
+        starred=doc.get("starred", False),
+        color=doc.get("color"),
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
         deleted_at=doc.get("deleted_at"),
@@ -68,6 +70,7 @@ class ItemRepository:
         await self._collection.create_index([("user_id", 1), ("taken_at", -1)])
         await self._collection.create_index([("user_id", 1), ("deleted_at", 1)])
         await self._collection.create_index([("user_id", 1), ("updated_at", -1)])
+        await self._collection.create_index([("user_id", 1), ("starred", 1), ("updated_at", -1)])
         # Case-insensitive substring search is a regex scan; this index at
         # least restricts it to one user's documents.
         await self._collection.create_index([("user_id", 1), ("name", 1)])
@@ -285,19 +288,57 @@ class ItemRepository:
         return _doc_to_item(doc) if doc else None
 
     async def rename_or_move(
-        self, user_id: str, item_id: str, *, name: str | None, parent_id: str | None, move: bool
+        self,
+        user_id: str,
+        item_id: str,
+        *,
+        name: str | None,
+        parent_id: str | None,
+        move: bool,
+        set_color: bool = False,
+        color: str | None = None,
     ) -> Item | None:
         updates: dict = {"updated_at": datetime.now(timezone.utc)}
         if name is not None:
             updates["name"] = name
         if move:
             updates["parent_id"] = parent_id
+        if set_color:
+            updates["color"] = color
         doc = await self._collection.find_one_and_update(
             {"_id": ObjectId(item_id), "user_id": user_id, "deleted_at": None},
             {"$set": updates},
             return_document=True,
         )
         return _doc_to_item(doc) if doc else None
+
+    async def set_starred(self, user_id: str, item_ids: list[str], starred: bool) -> int:
+        result = await self._collection.update_many(
+            {
+                "_id": {"$in": [ObjectId(i) for i in item_ids if ObjectId.is_valid(i)]},
+                "user_id": user_id,
+                "deleted_at": None,
+            },
+            {"$set": {"starred": starred, "updated_at": datetime.now(timezone.utc)}},
+        )
+        return result.modified_count
+
+    async def list_starred(
+        self, user_id: str, *, offset: int = 0, limit: int = DEFAULT_PAGE_SIZE
+    ) -> tuple[list[Item], int]:
+        """Every starred item, file or folder, regardless of where it
+        lives — starring is a cross-folder favourites list, not a tree
+        operation."""
+        query = self._live(user_id, starred=True)
+        cursor = (
+            self._collection.find(query)
+            .sort([("updated_at", -1)])
+            .skip(offset)
+            .limit(limit)
+        )
+        items = [_doc_to_item(d) async for d in cursor]
+        total = await self._collection.count_documents(query)
+        return items, total
 
     async def trash(self, user_id: str, item_ids: list[str]) -> int:
         """Move items to the trash, remembering where they came from."""
