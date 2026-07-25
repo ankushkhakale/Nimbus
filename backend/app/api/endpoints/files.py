@@ -22,6 +22,8 @@ from app.schemas.files import (
     CategoryUsage,
     CreateFolderRequest,
     DownloadUrlResponse,
+    ItemGroup,
+    ItemGroupsResponse,
     ItemResponse,
     MoveRequest,
     PageResponse,
@@ -156,6 +158,35 @@ async def list_starred(
     """Every starred item, file or folder, across all folders."""
     items, total = await files.list_starred(user.id, offset=offset, limit=limit)
     return _page(items, total, offset, limit)
+
+
+@router.get("/duplicates", response_model=ItemGroupsResponse)
+async def list_duplicates(
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> ItemGroupsResponse:
+    """Groups of images whose perceptual hashes are near-identical.
+
+    Read-only — this only surfaces candidates for the user to review;
+    nothing is deleted automatically.
+    """
+    groups = await files.find_duplicates(user.id)
+    return ItemGroupsResponse(
+        groups=[ItemGroup(items=[ItemResponse.from_item(i) for i in g]) for g in groups]
+    )
+
+
+@router.get("/photo-stacks", response_model=ItemGroupsResponse)
+async def list_photo_stacks(
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> ItemGroupsResponse:
+    """Groups of visually-similar images taken close together in time —
+    a burst of shots, rather than exact duplicates."""
+    groups = await files.find_photo_stacks(user.id)
+    return ItemGroupsResponse(
+        groups=[ItemGroup(items=[ItemResponse.from_item(i) for i in g]) for g in groups]
+    )
 
 
 @router.get("/trash", response_model=PageResponse)

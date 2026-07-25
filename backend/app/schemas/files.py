@@ -130,6 +130,17 @@ class PageResponse(BaseModel):
         return self.offset + len(self.items) < self.total
 
 
+class ItemGroup(BaseModel):
+    """A cluster of visually-similar images — either near-duplicates or a
+    photo stack, depending on which endpoint returned it."""
+
+    items: list[ItemResponse]
+
+
+class ItemGroupsResponse(BaseModel):
+    groups: list[ItemGroup]
+
+
 class BulkItemsRequest(BaseModel):
     # Bounded so one request cannot ask the server to walk an unbounded
     # number of subtrees.

@@ -31,6 +31,21 @@ logger = logging.getLogger(__name__)
 # How long trashed items are recoverable before the purge removes them.
 TRASH_RETENTION_DAYS = 30
 
+# Duplicate/stack detection does an O(n^2) pairwise comparison over
+# whatever this returns — cheap per pair (an XOR and a bit count), but
+# still bounded rather than scanning an unlimited library on every
+# request. 1000 images is 500k comparisons, comfortably sub-second in
+# Python and generous for the personal-scale libraries this project is
+# built around.
+DUPLICATE_SCAN_LIMIT = 1000
+DUPLICATE_HAMMING_THRESHOLD = 4
+STACK_HAMMING_THRESHOLD = 10
+STACK_TIME_WINDOW_SECONDS = 120
+
+
+def _hamming(a: str, b: str) -> int:
+    return bin(int(a, 16) ^ int(b, 16)).count("1")
+
 
 class FileService:
     def __init__(self, items: ItemRepository, storage: ObjectStorage):
@@ -181,6 +196,78 @@ class FileService:
         trashed, _ = await self._items.list_trashed(user_id, offset=0, limit=MAX_PAGE_SIZE)
         trashed_bytes = sum(i.size or 0 for i in trashed)
         return stored, files, folders, len(trashed), trashed_bytes, by_category
+
+    # --- duplicate detection / photo stacks -----------------------------
+    #
+    # Opportunistic: the thumbnailer Lambda already computes a perceptual
+    # hash for every image it thumbnails and stores it as metadata on the
+    # thumbnail object (see thumbnailer/app.py). This just reads that back
+    # and clusters — no new service, no write path here at all. An image
+    # uploaded before this feature shipped, or whose thumbnail failed,
+    # simply has no hash yet and is skipped rather than erroring.
+
+    async def _hashed_images(self, user_id: str) -> list[tuple[Item, str]]:
+        images, _ = await self._items.list_images(
+            user_id, offset=0, limit=DUPLICATE_SCAN_LIMIT
+        )
+        out: list[tuple[Item, str]] = []
+        for item in images:
+            if not item.s3_key:
+                continue
+            meta = self._storage.metadata(thumbnail_key(item.s3_key))
+            phash = meta.get("phash") if meta else None
+            if phash:
+                out.append((item, phash))
+        return out
+
+    @staticmethod
+    def _cluster(
+        hashed: list[tuple[Item, str]], *, max_distance: int, max_seconds: float | None
+    ) -> list[list[Item]]:
+        """Single-link clustering: union any two images within
+        `max_distance` bits of each other (and, if given, within
+        `max_seconds` of each other's capture time)."""
+        n = len(hashed)
+        parent = list(range(n))
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(a: int, b: int) -> None:
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+
+        for i in range(n):
+            item_i, hash_i = hashed[i]
+            for j in range(i + 1, n):
+                item_j, hash_j = hashed[j]
+                if _hamming(hash_i, hash_j) > max_distance:
+                    continue
+                if max_seconds is not None:
+                    t_i = item_i.taken_at or item_i.created_at
+                    t_j = item_j.taken_at or item_j.created_at
+                    if abs((t_i - t_j).total_seconds()) > max_seconds:
+                        continue
+                union(i, j)
+
+        groups: dict[int, list[Item]] = {}
+        for i, (item, _phash) in enumerate(hashed):
+            groups.setdefault(find(i), []).append(item)
+        return [g for g in groups.values() if len(g) >= 2]
+
+    async def find_duplicates(self, user_id: str) -> list[list[Item]]:
+        hashed = await self._hashed_images(user_id)
+        return self._cluster(hashed, max_distance=DUPLICATE_HAMMING_THRESHOLD, max_seconds=None)
+
+    async def find_photo_stacks(self, user_id: str) -> list[list[Item]]:
+        hashed = await self._hashed_images(user_id)
+        return self._cluster(
+            hashed, max_distance=STACK_HAMMING_THRESHOLD, max_seconds=STACK_TIME_WINDOW_SECONDS
+        )
 
     # --- creation ------------------------------------------------------
 

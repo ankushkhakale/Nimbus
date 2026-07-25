@@ -376,6 +376,7 @@ class FakeStorage:
     def __init__(self):
         self.uploaded: dict[str, int] = {}
         self.deleted: list[str] = []
+        self.object_metadata: dict[str, dict[str, str]] = {}
 
     def upload_url(self, key, *, content_type=None):
         return f"https://upload.test/{key}"
@@ -399,6 +400,11 @@ class FakeStorage:
 
     def size(self, key):
         return self.uploaded.get(key)
+
+    def metadata(self, key):
+        if key not in self.uploaded:
+            return None
+        return self.object_metadata.get(key, {})
 
 
 class FakeRefreshTokenRepository:

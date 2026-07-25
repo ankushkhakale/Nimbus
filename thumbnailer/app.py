@@ -46,7 +46,25 @@ def _is_image(bucket: str, key: str) -> bool:
     return content_type.startswith("image/")
 
 
-def _build_thumbnail(raw: bytes) -> bytes:
+def _compute_phash(image: Image.Image) -> str:
+    """8x8 difference hash (dHash) — deliberately Pillow-only rather than
+    pulling in a dedicated perceptual-hashing library, to keep the
+    Lambda's dependency footprint at just Pillow + boto3.
+
+    Hamming distance between two hashes approximates visual similarity.
+    Used for opportunistic duplicate detection and photo stacking — a
+    nice-to-have grouping signal, not anything that needs to be exact.
+    """
+    small = image.convert("L").resize((9, 8), Image.Resampling.LANCZOS)
+    pixels = list(small.getdata())
+    bits = []
+    for row in range(8):
+        row_pixels = pixels[row * 9 : row * 9 + 9]
+        bits.extend("1" if row_pixels[col] > row_pixels[col + 1] else "0" for col in range(8))
+    return f"{int(''.join(bits), 2):016x}"
+
+
+def _build_thumbnail(raw: bytes) -> tuple[bytes, str]:
     with Image.open(BytesIO(raw)) as image:
         # Phone photos carry orientation in EXIF; without this the
         # thumbnail comes out rotated even though the original looks fine.
@@ -54,11 +72,13 @@ def _build_thumbnail(raw: bytes) -> bytes:
         # JPEG has no alpha channel, so flatten anything that does.
         if image.mode not in ("RGB", "L"):
             image = image.convert("RGB")
-        image.thumbnail((MAX_EDGE, MAX_EDGE), Image.Resampling.LANCZOS)
 
+        phash = _compute_phash(image)
+
+        image.thumbnail((MAX_EDGE, MAX_EDGE), Image.Resampling.LANCZOS)
         buffer = BytesIO()
         image.save(buffer, format="JPEG", quality=82, optimize=True, progressive=True)
-        return buffer.getvalue()
+        return buffer.getvalue(), phash
 
 
 def handler(event, _context):
@@ -78,7 +98,7 @@ def handler(event, _context):
                 continue
 
             raw = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
-            thumbnail = _build_thumbnail(raw)
+            thumbnail, phash = _build_thumbnail(raw)
             destination = thumbnail_key(key)
 
             s3.put_object(
@@ -87,6 +107,11 @@ def handler(event, _context):
                 Body=thumbnail,
                 ContentType="image/jpeg",
                 CacheControl="public, max-age=31536000, immutable",
+                # Piggybacks the perceptual hash on the thumbnail object's
+                # metadata rather than writing to Mongo — this Lambda
+                # deliberately has no database access, and object
+                # metadata is free to attach to a PUT it's already doing.
+                Metadata={"phash": phash},
             )
             generated += 1
             logger.info("Wrote %s (%d bytes)", destination, len(thumbnail))

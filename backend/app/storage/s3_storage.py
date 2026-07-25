@@ -73,3 +73,13 @@ class S3ObjectStorage(ObjectStorage):
                 return None
             raise
         return head["ContentLength"]
+
+    def metadata(self, key: str) -> dict[str, str] | None:
+        try:
+            head = self._client.head_object(Bucket=self._bucket, Key=key)
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") in {"404", "NoSuchKey", "NotFound"}:
+                return None
+            raise
+        # boto3 already lower-cases and strips the x-amz-meta- prefix.
+        return head.get("Metadata", {})
