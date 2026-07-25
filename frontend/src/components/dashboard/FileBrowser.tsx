@@ -10,6 +10,7 @@ import {
   Download,
   File as FileIcon,
   FileText,
+  FolderInput,
   FolderPlus,
   FolderUp,
   Folder as FolderIcon,
@@ -41,12 +42,16 @@ import { ViewMode, getViewMode, setViewMode as persistViewMode } from "@/lib/pre
 import { FormError } from "@/components/FormError";
 import { UserMenu } from "@/components/UserMenu";
 import { ConfirmModal, Modal, PromptModal } from "@/components/ui/Modal";
-import { OverflowMenu } from "@/components/ui/OverflowMenu";
+import { MenuAction, OverflowMenu } from "@/components/ui/OverflowMenu";
+import { downloadItemsAsZip } from "@/lib/zip-download";
+import { BulkRenameDialog } from "./BulkRenameDialog";
+import { ContextMenu, ContextMenuState } from "./ContextMenu";
 import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
 import { Lightbox } from "./Lightbox";
 import { MoveDialog } from "./MoveDialog";
 import { ComparePanel } from "./ComparePanel";
 import { ShareDialog } from "./ShareDialog";
+import { UndoAction, UndoToast } from "./UndoToast";
 import { VersionHistoryDialog } from "./VersionHistoryDialog";
 import { SharedWithMePanel } from "./SharedWithMePanel";
 import { DuplicatesPanel } from "./DuplicatesPanel";
@@ -153,10 +158,12 @@ type DialogState =
   | { kind: "deleteForever"; items: Item[] }
   | { kind: "move"; items: Item[] }
   | { kind: "share"; item: Item }
-  | { kind: "versions"; item: Item };
+  | { kind: "versions"; item: Item }
+  | { kind: "bulkRename"; items: Item[] };
 
 export function FileBrowser() {
   const b = useFiles();
+  const { token } = useAuth();
   const [dialog, setDialog] = useState<DialogState>({ kind: "none" });
   const [dragging, setDragging] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -172,6 +179,10 @@ export function FileBrowser() {
   const [mapOpen, setMapOpen] = useState(false);
   const [sharedWithMeOpen, setSharedWithMeOpen] = useState(false);
   const [compareItems, setCompareItems] = useState<[Item, Item] | null>(null);
+  const [undo, setUndo] = useState<UndoAction | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [zipBusy, setZipBusy] = useState<number | null>(null); // files done, or null
+  const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
   const setViewMode = (mode: ViewMode) => {
     setViewModeState(mode);
     persistViewMode(mode);
@@ -181,6 +192,10 @@ export function FileBrowser() {
   const folderInput = useRef<HTMLInputElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const sentinel = useRef<HTMLDivElement>(null);
+  // Ids being dragged (all selected if the dragged item is part of the
+  // selection, else just that one). A ref, not state — it changes during
+  // native drag events and never needs to trigger a render.
+  const draggedIds = useRef<string[]>([]);
 
   const { items, loading, loadingMore, error, uploads, usage, view, selected } = b;
 
@@ -204,6 +219,142 @@ export function FileBrowser() {
       setActionError(err instanceof Error ? err.message : "Action failed.");
     }
   }, []);
+
+  // --- bulk operations ------------------------------------------------
+
+  // Trash with an undo affordance: restoring is exactly the reverse, so
+  // the toast just calls restore on the same ids.
+  const trashWithUndo = useCallback(
+    (targets: Item[]) => {
+      const ids = targets.map((i) => i.id);
+      void guard(() => b.trashItems(ids));
+      setUndo({
+        key: `trash-${Date.now()}`,
+        message: `${describe(targets)} moved to Trash`,
+        run: () => guard(() => b.restoreItems(ids)),
+      });
+    },
+    [b, guard]
+  );
+
+  // Move with undo: capture each item's original parent so the reversal
+  // can put each back where it came from, even into different folders.
+  const moveWithUndo = useCallback(
+    (targets: Item[], parentId: string | null) => {
+      const ids = targets.map((i) => i.id);
+      const origins = new Map(targets.map((i) => [i.id, i.parent_id ?? null]));
+      void guard(() => b.moveTo(ids, parentId));
+      setUndo({
+        key: `move-${Date.now()}`,
+        message: `Moved ${describe(targets)}`,
+        run: () =>
+          guard(async () => {
+            // Group by original parent so each destination is one call.
+            const byParent = new Map<string | null, string[]>();
+            for (const [id, origin] of origins) {
+              byParent.set(origin, [...(byParent.get(origin) ?? []), id]);
+            }
+            for (const [origin, group] of byParent) {
+              await b.moveTo(group, origin);
+            }
+          }),
+      });
+    },
+    [b, guard]
+  );
+
+  const downloadZip = useCallback(
+    (targets: Item[]) => {
+      if (!token || targets.length === 0) return;
+      setZipBusy(0);
+      const name =
+        targets.length === 1 ? targets[0].name : `Nimbus (${targets.length} items)`;
+      void downloadItemsAsZip(targets, token, name, (done) => setZipBusy(done))
+        .catch((err) =>
+          setActionError(err instanceof Error ? err.message : "Could not build the zip.")
+        )
+        .finally(() => setZipBusy(null));
+    },
+    [token]
+  );
+
+  // Actions shown in the right-click context menu for one item. Mirrors
+  // the overflow menu but is reachable by right-click anywhere on a row.
+  const contextActionsFor = useCallback(
+    (item: Item): MenuAction[] => {
+      const inTrash = view === "trash";
+      if (inTrash) {
+        return [
+          {
+            label: "Restore",
+            icon: <RotateCcw size={15} />,
+            onClick: () => void guard(() => b.restoreItems([item.id])),
+          },
+          {
+            label: "Delete forever",
+            icon: <Trash2 size={15} />,
+            destructive: true,
+            onClick: () => setDialog({ kind: "deleteForever", items: [item] }),
+          },
+        ];
+      }
+      const actions: MenuAction[] = [
+        { label: "Rename", icon: <Pencil size={15} />, onClick: () => setDialog({ kind: "rename", item }) },
+        { label: "Move to…", icon: <FolderInput size={15} />, onClick: () => setDialog({ kind: "move", items: [item] }) },
+        { label: "Share", icon: <Share2 size={15} />, onClick: () => setDialog({ kind: "share", item }) },
+        { label: "Download", icon: <Download size={15} />, onClick: () => downloadZip([item]) },
+      ];
+      if (item.type === "file") {
+        actions.push({
+          label: "Version history",
+          icon: <History size={15} />,
+          onClick: () => setDialog({ kind: "versions", item }),
+        });
+      }
+      actions.push({
+        label: "Move to Trash",
+        icon: <Trash2 size={15} />,
+        destructive: true,
+        onClick: () => trashWithUndo([item]),
+      });
+      return actions;
+    },
+    [b, guard, view, downloadZip, trashWithUndo]
+  );
+
+  const openContextMenu = useCallback(
+    (item: Item, e: React.MouseEvent) => {
+      e.preventDefault();
+      // Right-clicking an unselected item selects just that item; if it's
+      // already part of the selection, keep the selection intact.
+      if (!selected.has(item.id)) b.toggleSelected(item.id, true);
+      setContextMenu({ x: e.clientX, y: e.clientY, actions: contextActionsFor(item) });
+    },
+    [selected, b, contextActionsFor]
+  );
+
+  // --- drag to move ----------------------------------------------------
+
+  const onItemDragStart = useCallback(
+    (item: Item) => {
+      // Drag the whole selection if the grabbed item is in it, else just it.
+      draggedIds.current = selected.has(item.id) ? [...selected] : [item.id];
+    },
+    [selected]
+  );
+
+  const onDropOnFolder = useCallback(
+    (folder: Item) => {
+      setDragOverFolder(null);
+      const ids = draggedIds.current.filter((id) => id !== folder.id);
+      draggedIds.current = [];
+      if (ids.length === 0) return;
+      const moved = items.filter((i) => ids.includes(i.id));
+      moveWithUndo(moved, folder.id);
+      b.clearSelection();
+    },
+    [items, moveWithUndo, b]
+  );
 
   // --- infinite scroll ------------------------------------------------
 
@@ -412,6 +563,13 @@ export function FileBrowser() {
               onCompare={
                 selected.size === 2 ? () => setCompareItems(b.selectedItems as [Item, Item]) : undefined
               }
+              onDownloadZip={() => downloadZip(b.selectedItems)}
+              zipBusy={zipBusy}
+              onBulkRename={
+                selected.size >= 2
+                  ? () => setDialog({ kind: "bulkRename", items: b.selectedItems })
+                  : undefined
+              }
             />
           )}
 
@@ -455,6 +613,14 @@ export function FileBrowser() {
                         onToggleStar={() => void guard(() => b.toggleStarred(folder))}
                         onChangeColor={() => setDialog({ kind: "color", item: folder })}
                         onShare={() => setDialog({ kind: "share", item: folder })}
+                        onContextMenu={(e) => openContextMenu(folder, e)}
+                        onDragStartItem={() => onItemDragStart(folder)}
+                        onDropItems={() => onDropOnFolder(folder)}
+                        isDropTarget={dragOverFolder === folder.id}
+                        onDragOverFolder={() => setDragOverFolder(folder.id)}
+                        onDragLeaveFolder={() =>
+                          setDragOverFolder((cur) => (cur === folder.id ? null : cur))
+                        }
                       />
                     ))}
                   </div>
@@ -488,6 +654,8 @@ export function FileBrowser() {
                           onToggleStar={() => void guard(() => b.toggleStarred(file))}
                           onShare={() => setDialog({ kind: "share", item: file })}
                           onVersionHistory={() => setDialog({ kind: "versions", item: file })}
+                          onContextMenu={(e) => openContextMenu(file, e)}
+                          onDragStartItem={() => onItemDragStart(file)}
                         />
                       ))}
                     </div>
@@ -593,9 +761,9 @@ export function FileBrowser() {
         onCancel={closeDialog}
         onConfirm={() => {
           if (dialog.kind !== "trash") return;
-          const ids = dialog.items.map((i) => i.id);
+          const targets = dialog.items;
           closeDialog();
-          void guard(() => b.trashItems(ids));
+          trashWithUndo(targets);
         }}
       />
 
@@ -626,9 +794,9 @@ export function FileBrowser() {
           items={dialog.items}
           onCancel={closeDialog}
           onMove={(parentId) => {
-            const ids = dialog.items.map((i) => i.id);
+            const targets = dialog.kind === "move" ? dialog.items : [];
             closeDialog();
-            void guard(() => b.moveTo(ids, parentId));
+            moveWithUndo(targets, parentId);
           }}
         />
       )}
@@ -681,6 +849,23 @@ export function FileBrowser() {
       {compareItems && (
         <ComparePanel items={compareItems} onClose={() => setCompareItems(null)} />
       )}
+
+      {dialog.kind === "bulkRename" && (
+        <BulkRenameDialog
+          items={dialog.items}
+          onCancel={closeDialog}
+          onApply={(renames) => {
+            closeDialog();
+            void guard(() => b.renameMany(renames));
+          }}
+        />
+      )}
+
+      {contextMenu && (
+        <ContextMenu state={contextMenu} onClose={() => setContextMenu(null)} />
+      )}
+
+      {undo && <UndoToast action={undo} onDismiss={() => setUndo(null)} />}
     </div>
   );
 }
@@ -1275,6 +1460,9 @@ function SelectionBar({
   onRestore,
   onDeleteForever,
   onCompare,
+  onDownloadZip,
+  zipBusy,
+  onBulkRename,
 }: {
   count: number;
   total: number;
@@ -1286,6 +1474,9 @@ function SelectionBar({
   onRestore: () => void;
   onDeleteForever: () => void;
   onCompare?: () => void;
+  onDownloadZip: () => void;
+  zipBusy: number | null;
+  onBulkRename?: () => void;
 }) {
   const allSelected = count > 0 && count >= total;
   const checkboxRef = useRef<HTMLInputElement>(null);
@@ -1351,6 +1542,27 @@ function SelectionBar({
                   <Columns2 size={15} /> Compare
                 </button>
               )}
+              {onBulkRename && (
+                <button type="button" className="btn-secondary" onClick={onBulkRename}>
+                  <Pencil size={15} /> Rename
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={onDownloadZip}
+                disabled={zipBusy !== null}
+              >
+                {zipBusy !== null ? (
+                  <>
+                    <Loader2 size={15} className="spin" /> Zipping {zipBusy}…
+                  </>
+                ) : (
+                  <>
+                    <Download size={15} /> Download ZIP
+                  </>
+                )}
+              </button>
               <button type="button" className="btn-secondary" onClick={onMove}>
                 Move to…
               </button>
@@ -1444,6 +1656,12 @@ function FolderCard({
   onToggleStar,
   onChangeColor,
   onShare,
+  onContextMenu,
+  onDragStartItem,
+  onDropItems,
+  isDropTarget,
+  onDragOverFolder,
+  onDragLeaveFolder,
 }: {
   item: Item;
   isSelected: boolean;
@@ -1455,10 +1673,30 @@ function FolderCard({
   onToggleStar: () => void;
   onChangeColor: () => void;
   onShare: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+  onDragStartItem: () => void;
+  onDropItems: () => void;
+  isDropTarget: boolean;
+  onDragOverFolder: () => void;
+  onDragLeaveFolder: () => void;
 }) {
   return (
     <div
       className="card animate-hover"
+      draggable={!readOnly}
+      onDragStart={onDragStartItem}
+      onContextMenu={onContextMenu}
+      onDragOver={(e) => {
+        if (readOnly) return;
+        e.preventDefault();
+        onDragOverFolder();
+      }}
+      onDragLeave={onDragLeaveFolder}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onDropItems();
+      }}
       onDoubleClick={onOpen}
       onClick={(e) => (e.metaKey || e.ctrlKey) && onToggleSelect(item.id)}
       style={{
@@ -1467,8 +1705,13 @@ function FolderCard({
         gap: 12,
         padding: "10px 14px",
         cursor: "pointer",
-        outline: isSelected ? "2px solid var(--primary)" : "none",
+        outline: isDropTarget
+          ? "2px solid var(--primary)"
+          : isSelected
+            ? "2px solid var(--primary)"
+            : "none",
         outlineOffset: -1,
+        background: isDropTarget ? "var(--surface-elevated)" : undefined,
       }}
     >
       <input
@@ -1550,6 +1793,8 @@ function FileRow({
   onToggleStar,
   onShare,
   onVersionHistory,
+  onContextMenu,
+  onDragStartItem,
 }: {
   item: Item;
   isSelected: boolean;
@@ -1563,10 +1808,15 @@ function FileRow({
   onToggleStar: () => void;
   onShare: () => void;
   onVersionHistory: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+  onDragStartItem: () => void;
 }) {
   return (
     <div
       className="card animate-hover"
+      draggable={!readOnly}
+      onDragStart={onDragStartItem}
+      onContextMenu={onContextMenu}
       style={{
         display: "flex",
         alignItems: "center",
