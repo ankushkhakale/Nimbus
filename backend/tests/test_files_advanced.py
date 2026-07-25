@@ -218,6 +218,89 @@ def test_search_ignores_trashed_items(client, auth_headers, fake_storage, fake_i
     assert client.get(f"{FILES}/search", params={"q": "gone"}, headers=h).json()["total"] == 0
 
 
+# --- search filters -----------------------------------------------------
+
+def test_search_filters_by_type(client, auth_headers, fake_storage, fake_item_repo):
+    h = auth_headers()
+    _folder(client, h, "report-folder")
+    _ready_file(client, h, fake_storage, fake_item_repo, "report.txt", None)
+
+    files_only = client.get(
+        f"{FILES}/search", params={"q": "report", "type": "file"}, headers=h
+    ).json()
+    assert [i["name"] for i in files_only["items"]] == ["report.txt"]
+
+    folders_only = client.get(
+        f"{FILES}/search", params={"q": "report", "type": "folder"}, headers=h
+    ).json()
+    assert [i["name"] for i in folders_only["items"]] == ["report-folder"]
+
+
+def test_search_filters_by_category(client, auth_headers, fake_storage, fake_item_repo):
+    h = auth_headers()
+    _ready_file(client, h, fake_storage, fake_item_repo, "trip.jpg", None, "image/jpeg")
+    _ready_file(client, h, fake_storage, fake_item_repo, "trip.mp4", None, "video/mp4")
+
+    body = client.get(
+        f"{FILES}/search", params={"q": "trip", "category": "images"}, headers=h
+    ).json()
+    assert [i["name"] for i in body["items"]] == ["trip.jpg"]
+
+
+def test_search_filters_by_size_range(client, auth_headers, fake_storage, fake_item_repo):
+    h = auth_headers()
+    _ready_file(client, h, fake_storage, fake_item_repo, "small-log.txt", None, size=10)
+    _ready_file(client, h, fake_storage, fake_item_repo, "big-log.txt", None, size=10_000)
+
+    body = client.get(
+        f"{FILES}/search", params={"q": "log", "min_size": 1000}, headers=h
+    ).json()
+    assert [i["name"] for i in body["items"]] == ["big-log.txt"]
+
+    body = client.get(
+        f"{FILES}/search", params={"q": "log", "max_size": 100}, headers=h
+    ).json()
+    assert [i["name"] for i in body["items"]] == ["small-log.txt"]
+
+
+def test_search_filters_by_date_range(client, auth_headers, fake_storage, fake_item_repo):
+    h = auth_headers()
+    item = _ready_file(client, h, fake_storage, fake_item_repo, "dated-note.txt", None)
+
+    far_future = datetime.now(timezone.utc) + timedelta(days=365)
+    body = client.get(
+        f"{FILES}/search",
+        params={"q": "dated", "updated_after": far_future.isoformat()},
+        headers=h,
+    ).json()
+    assert body["total"] == 0
+
+    far_past = datetime.now(timezone.utc) - timedelta(days=365)
+    body = client.get(
+        f"{FILES}/search",
+        params={"q": "dated", "updated_after": far_past.isoformat()},
+        headers=h,
+    ).json()
+    assert [i["id"] for i in body["items"]] == [item]
+
+
+def test_search_filters_combine_with_and_semantics(
+    client, auth_headers, fake_storage, fake_item_repo
+):
+    h = auth_headers()
+    _ready_file(client, h, fake_storage, fake_item_repo, "photo-small.jpg", None,
+               "image/jpeg", size=10)
+    _ready_file(client, h, fake_storage, fake_item_repo, "photo-big.jpg", None,
+               "image/jpeg", size=10_000)
+
+    body = client.get(
+        f"{FILES}/search",
+        params={"q": "photo", "category": "images", "min_size": 1000},
+        headers=h,
+    ).json()
+    assert [i["name"] for i in body["items"]] == ["photo-big.jpg"]
+
+
 # --- bulk move ----------------------------------------------------------
 
 def test_bulk_move(client, auth_headers, fake_storage, fake_item_repo):

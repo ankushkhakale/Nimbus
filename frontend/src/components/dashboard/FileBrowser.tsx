@@ -41,6 +41,7 @@ import { Lightbox } from "./Lightbox";
 import { MoveDialog } from "./MoveDialog";
 import { OnThisDay } from "./OnThisDay";
 import { PhotoGrid } from "./PhotoGrid";
+import { SearchFilterPanel } from "./SearchFilterPanel";
 import { StorageWidget } from "./StorageWidget";
 
 const SORT_LABELS: Record<SortKey, string> = {
@@ -786,6 +787,16 @@ function Toolbar({
             </button>
           )}
         </div>
+
+        <SearchFilterPanel
+          query={browser.query}
+          filters={browser.searchFilters}
+          onChange={browser.setSearchFilters}
+          onApplySaved={(saved) => {
+            browser.setQuery(saved.query);
+            browser.setSearchFilters(saved.filters);
+          }}
+        />
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

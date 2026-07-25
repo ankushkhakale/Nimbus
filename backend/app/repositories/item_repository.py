@@ -58,6 +58,15 @@ SORT_SPECS: dict[str, list[tuple[str, int]]] = {
 }
 DEFAULT_SORT = "name"
 
+# Same coarse buckets as usage_by_category, but as direct query filters
+# rather than an aggregation $switch — search is a find(), not a pipeline.
+CATEGORY_REGEX: dict[str, str] = {
+    "images": "^image/",
+    "video": "^video/",
+    "audio": "^audio/",
+    "documents": "pdf|document|text|spreadsheet|presentation",
+}
+
 
 class ItemRepository:
     def __init__(self, db: AsyncIOMotorDatabase):
@@ -158,14 +167,51 @@ class ItemRepository:
         return items, total
 
     async def search(
-        self, user_id: str, term: str, *, offset: int = 0, limit: int = DEFAULT_PAGE_SIZE
+        self,
+        user_id: str,
+        term: str,
+        *,
+        offset: int = 0,
+        limit: int = DEFAULT_PAGE_SIZE,
+        item_type: str | None = None,
+        category: str | None = None,
+        min_size: int | None = None,
+        max_size: int | None = None,
+        updated_after: datetime | None = None,
+        updated_before: datetime | None = None,
     ) -> tuple[list[Item], int]:
-        """Case-insensitive substring match on name, across all folders."""
+        """Case-insensitive substring match on name, across all folders,
+        narrowed by whichever structured filters the caller supplied."""
         # Escaped so a name containing regex metacharacters is matched
         # literally rather than compiled as a pattern.
         import re
 
-        query = self._live(user_id, name={"$regex": re.escape(term), "$options": "i"})
+        query: dict = self._live(user_id, name={"$regex": re.escape(term), "$options": "i"})
+
+        if item_type is not None:
+            query["type"] = item_type
+        if category is not None and category in CATEGORY_REGEX:
+            query["content_type"] = {"$regex": CATEGORY_REGEX[category]}
+        elif category == "other":
+            # Anything that doesn't match any named bucket.
+            query["content_type"] = {
+                "$not": {"$regex": "|".join(CATEGORY_REGEX.values())}
+            }
+        if min_size is not None or max_size is not None:
+            size_filter: dict = {}
+            if min_size is not None:
+                size_filter["$gte"] = min_size
+            if max_size is not None:
+                size_filter["$lte"] = max_size
+            query["size"] = size_filter
+        if updated_after is not None or updated_before is not None:
+            updated_filter: dict = {}
+            if updated_after is not None:
+                updated_filter["$gte"] = updated_after
+            if updated_before is not None:
+                updated_filter["$lte"] = updated_before
+            query["updated_at"] = updated_filter
+
         cursor = (
             self._collection.find(query)
             .sort([("type", -1), ("name", 1)])

@@ -10,6 +10,7 @@ purge and an explicit permanent delete.
 """
 
 import logging
+from datetime import datetime
 from uuid import uuid4
 
 from fastapi import HTTPException, status
@@ -131,13 +132,33 @@ class FileService:
         )
 
     async def search(
-        self, user_id: str, term: str, *, offset: int, limit: int
+        self,
+        user_id: str,
+        term: str,
+        *,
+        offset: int,
+        limit: int,
+        item_type: str | None = None,
+        category: str | None = None,
+        min_size: int | None = None,
+        max_size: int | None = None,
+        updated_after: datetime | None = None,
+        updated_before: datetime | None = None,
     ) -> tuple[list[Item], int]:
         term = term.strip()
         if not term:
             return [], 0
         return await self._items.search(
-            user_id, term, offset=max(0, offset), limit=self._clamp(limit)
+            user_id,
+            term,
+            offset=max(0, offset),
+            limit=self._clamp(limit),
+            item_type=item_type,
+            category=category,
+            min_size=min_size,
+            max_size=max_size,
+            updated_after=updated_after,
+            updated_before=updated_before,
         )
 
     async def recent(self, user_id: str, *, limit: int = 20) -> list[Item]:

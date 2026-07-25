@@ -7,12 +7,20 @@
  */
 
 import type { SortKey } from "./api";
-import type { View } from "./use-files";
+import type { SearchFilters, View } from "./use-files";
 
 const DEFAULT_VIEW_KEY = "nimbus:default-view";
 const REDUCED_MOTION_KEY = "nimbus:reduced-motion";
 const SORT_PREFIX = "nimbus:sort:";
 const VIEW_MODE_KEY = "nimbus:view-mode";
+const SAVED_SEARCHES_KEY = "nimbus:saved-searches";
+
+export interface SavedSearch {
+  id: string;
+  label: string;
+  query: string;
+  filters: SearchFilters;
+}
 
 const VALID_VIEWS: View[] = ["files", "photos", "videos", "starred", "recent", "trash"];
 
@@ -70,4 +78,26 @@ export function getViewMode(): ViewMode {
 
 export function setViewMode(mode: ViewMode): void {
   write(VIEW_MODE_KEY, mode);
+}
+
+export function getSavedSearches(): SavedSearch[] {
+  const stored = read(SAVED_SEARCHES_KEY);
+  if (!stored) return [];
+  try {
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function addSavedSearch(search: Omit<SavedSearch, "id">): SavedSearch {
+  const withId: SavedSearch = { ...search, id: `${Date.now()}-${Math.random().toString(36).slice(2)}` };
+  const next = [...getSavedSearches(), withId];
+  write(SAVED_SEARCHES_KEY, JSON.stringify(next));
+  return withId;
+}
+
+export function removeSavedSearch(id: string): void {
+  write(SAVED_SEARCHES_KEY, JSON.stringify(getSavedSearches().filter((s) => s.id !== id)));
 }

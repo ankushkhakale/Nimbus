@@ -8,6 +8,8 @@ Fixed-path routes are declared before /{item_id} ones; otherwise the path
 parameter swallows them.
 """
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.api.deps import get_current_user, get_file_service
@@ -100,10 +102,29 @@ async def search_items(
     q: str = Query(min_length=1, max_length=200),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=500),
+    item_type: str | None = Query(default=None, alias="type", pattern="^(file|folder)$"),
+    category: str | None = Query(
+        default=None, pattern="^(images|video|audio|documents|other)$"
+    ),
+    min_size: int | None = Query(default=None, ge=0),
+    max_size: int | None = Query(default=None, ge=0),
+    updated_after: datetime | None = Query(default=None),
+    updated_before: datetime | None = Query(default=None),
     user: UserInDB = Depends(get_current_user),
     files: FileService = Depends(get_file_service),
 ) -> PageResponse:
-    items, total = await files.search(user.id, q, offset=offset, limit=limit)
+    items, total = await files.search(
+        user.id,
+        q,
+        offset=offset,
+        limit=limit,
+        item_type=item_type,
+        category=category,
+        min_size=min_size,
+        max_size=max_size,
+        updated_after=updated_after,
+        updated_before=updated_before,
+    )
     return _page(items, total, offset, limit)
 
 

@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Item,
+  ItemType,
   Page,
   SortKey,
   UsageDetail,
@@ -28,6 +29,17 @@ export interface Crumb {
   id: string | null;
   name: string;
 }
+
+export interface SearchFilters {
+  type?: ItemType;
+  category?: string;
+  min_size?: number;
+  max_size?: number;
+  updated_after?: string;
+  updated_before?: string;
+}
+
+const NO_FILTERS: SearchFilters = {};
 
 export interface UploadProgress {
   /** Local id; the server item id does not exist until the request returns. */
@@ -49,6 +61,7 @@ export function useFiles() {
   const [trail, setTrail] = useState<Crumb[]>([ROOT]);
   const [sort, setSortRaw] = useState<SortKey>(() => getFolderSort(null) ?? "name");
   const [query, setQuery] = useState("");
+  const [searchFilters, setSearchFilters] = useState<SearchFilters>(NO_FILTERS);
 
   const [items, setItems] = useState<Item[]>([]);
   const [total, setTotal] = useState(0);
@@ -91,7 +104,7 @@ export function useFiles() {
 
       // A search overrides whatever view is active — people expect the
       // results, not their previous folder.
-      if (query.trim()) return filesApi.search(token, query.trim(), opts);
+      if (query.trim()) return filesApi.search(token, query.trim(), { ...opts, ...searchFilters });
 
       switch (view) {
         case "photos":
@@ -110,7 +123,7 @@ export function useFiles() {
           return filesApi.list(token, current.id, { ...opts, sort });
       }
     },
-    [token, view, query, current.id, sort]
+    [token, view, query, current.id, sort, searchFilters]
   );
 
   const reload = useCallback(async () => {
@@ -356,6 +369,8 @@ export function useFiles() {
     setView,
     query,
     setQuery,
+    searchFilters,
+    setSearchFilters,
     sort,
     setSort,
     // data
