@@ -4,7 +4,9 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.database.mongodb import get_database
 from app.models.user import UserInDB
+from app.repositories.activity_repository import ActivityRepository
 from app.repositories.item_repository import ItemRepository
+from app.repositories.login_activity_repository import LoginActivityRepository
 from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.share_repository import ShareRepository
 from app.repositories.user_repository import UserRepository
@@ -48,6 +50,16 @@ def get_version_repository(db: AsyncIOMotorDatabase = Depends(get_db)) -> Versio
     return VersionRepository(db)
 
 
+def get_activity_repository(db: AsyncIOMotorDatabase = Depends(get_db)) -> ActivityRepository:
+    return ActivityRepository(db)
+
+
+def get_login_activity_repository(
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> LoginActivityRepository:
+    return LoginActivityRepository(db)
+
+
 # Built once per process, not per request: boto3 clients are thread-safe
 # and creating one costs an expensive session/credential resolution that
 # would otherwise repeat on every call.
@@ -65,8 +77,9 @@ def get_file_service(
     items: ItemRepository = Depends(get_item_repository),
     storage: ObjectStorage = Depends(get_storage),
     versions: VersionRepository = Depends(get_version_repository),
+    activity: ActivityRepository = Depends(get_activity_repository),
 ) -> FileService:
-    return FileService(items, storage, versions)
+    return FileService(items, storage, versions, activity)
 
 
 def get_share_repository(db: AsyncIOMotorDatabase = Depends(get_db)) -> ShareRepository:

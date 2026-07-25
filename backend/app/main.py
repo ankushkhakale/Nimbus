@@ -8,6 +8,8 @@ from app.api.api_router import api_router
 from app.database.mongodb import connect_to_mongo, close_mongo_connection, get_database
 from app.repositories.item_repository import ItemRepository
 from app.repositories.refresh_token_repository import RefreshTokenRepository
+from app.repositories.activity_repository import ActivityRepository
+from app.repositories.login_activity_repository import LoginActivityRepository
 from app.repositories.share_repository import ShareRepository
 from app.repositories.user_repository import UserRepository
 from app.repositories.version_repository import VersionRepository
@@ -37,6 +39,8 @@ async def lifespan(app: FastAPI):
     await RefreshTokenRepository(db).ensure_indexes()
     await ShareRepository(db).ensure_indexes()
     await VersionRepository(db).ensure_indexes()
+    await ActivityRepository(db).ensure_indexes()
+    await LoginActivityRepository(db).ensure_indexes()
     yield
     logger.info(f"Shutting down {settings.PROJECT_NAME} backend...")
     await close_mongo_connection()

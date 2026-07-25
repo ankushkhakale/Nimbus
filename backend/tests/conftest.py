@@ -7,8 +7,10 @@ from fastapi.testclient import TestClient
 
 from app.api import deps
 from app.api.api_router import api_router
+from app.models.activity import Activity
 from app.models.file_version import FileVersion
 from app.models.item import Item, ItemType, UploadStatus
+from app.models.login_activity import LoginActivity
 from app.models.share import Share
 from app.models.user import UserInDB
 
@@ -509,6 +511,52 @@ class FakeVersionRepository:
         return len(doomed)
 
 
+class FakeActivityRepository:
+    """In-memory stand-in for ActivityRepository."""
+
+    def __init__(self):
+        self._entries: list[Activity] = []
+        self._next = 1
+
+    async def record(self, user_id, action, *, item_name=None, detail=None):
+        entry = Activity(
+            id=f"{self._next:024x}",
+            user_id=user_id,
+            action=action,
+            item_name=item_name,
+            detail=detail,
+        )
+        self._next += 1
+        self._entries.append(entry)
+
+    async def list_for_user(self, user_id, *, limit=100):
+        mine = [e for e in self._entries if e.user_id == user_id]
+        return list(reversed(mine))[:limit]
+
+
+class FakeLoginActivityRepository:
+    """In-memory stand-in for LoginActivityRepository."""
+
+    def __init__(self):
+        self._entries: list[LoginActivity] = []
+        self._next = 1
+
+    async def record(self, user_id, method, *, ip=None, user_agent=None):
+        entry = LoginActivity(
+            id=f"{self._next:024x}",
+            user_id=user_id,
+            method=method,
+            ip=ip,
+            user_agent=user_agent,
+        )
+        self._next += 1
+        self._entries.append(entry)
+
+    async def list_for_user(self, user_id, *, limit=50):
+        mine = [e for e in self._entries if e.user_id == user_id]
+        return list(reversed(mine))[:limit]
+
+
 class FakeStorage:
     """Object storage stub; `uploaded` stands in for what S3 holds."""
 
@@ -636,6 +684,16 @@ def fake_version_repo() -> FakeVersionRepository:
 
 
 @pytest.fixture
+def fake_activity_repo() -> FakeActivityRepository:
+    return FakeActivityRepository()
+
+
+@pytest.fixture
+def fake_login_activity_repo() -> FakeLoginActivityRepository:
+    return FakeLoginActivityRepository()
+
+
+@pytest.fixture
 def fake_storage() -> FakeStorage:
     return FakeStorage()
 
@@ -646,6 +704,8 @@ def client(
     fake_item_repo,
     fake_share_repo,
     fake_version_repo,
+    fake_activity_repo,
+    fake_login_activity_repo,
     fake_storage,
     fake_refresh_repo,
 ) -> TestClient:
@@ -656,6 +716,8 @@ def client(
     app.dependency_overrides[deps.get_item_repository] = lambda: fake_item_repo
     app.dependency_overrides[deps.get_share_repository] = lambda: fake_share_repo
     app.dependency_overrides[deps.get_version_repository] = lambda: fake_version_repo
+    app.dependency_overrides[deps.get_activity_repository] = lambda: fake_activity_repo
+    app.dependency_overrides[deps.get_login_activity_repository] = lambda: fake_login_activity_repo
     app.dependency_overrides[deps.get_storage] = lambda: fake_storage
     # https, not http: the refresh cookie is set Secure, and a client
     # correctly refuses to send Secure cookies over plain HTTP. Testing

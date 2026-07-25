@@ -270,6 +270,18 @@ class FileVersionsResponse(BaseModel):
     versions: list[FileVersionResponse]
 
 
+class ActivityResponse(BaseModel):
+    id: str
+    action: str
+    item_name: str | None
+    detail: str | None
+    created_at: datetime
+
+
+class ActivityFeedResponse(BaseModel):
+    activity: list[ActivityResponse]
+
+
 class DownloadUrlResponse(BaseModel):
     download_url: str
     expires_in: int

@@ -18,6 +18,7 @@ from fastapi import HTTPException, status
 from app.core.config import settings
 from app.models.file_version import FileVersion
 from app.models.item import Item, ItemType, UploadStatus
+from app.repositories.activity_repository import ActivityRepository
 from app.repositories.item_repository import MAX_PAGE_SIZE, ItemRepository
 from app.repositories.version_repository import VersionRepository
 from app.storage.base import ObjectStorage
@@ -66,12 +67,31 @@ class FileService:
         items: ItemRepository,
         storage: ObjectStorage,
         versions: VersionRepository | None = None,
+        activity: ActivityRepository | None = None,
     ):
         self._items = items
         self._storage = storage
         self._versions = versions
+        self._activity = activity
 
     # --- helpers -------------------------------------------------------
+
+    async def _log(
+        self,
+        user_id: str,
+        action: str,
+        *,
+        item_name: str | None = None,
+        detail: str | None = None,
+    ) -> None:
+        """Best-effort activity recording — never lets a feed write break
+        the operation that triggered it."""
+        if self._activity is None:
+            return
+        try:
+            await self._activity.record(user_id, action, item_name=item_name, detail=detail)
+        except Exception:  # pragma: no cover - best effort
+            logger.exception("Failed recording activity for user %s", user_id)
 
     @staticmethod
     def not_found() -> HTTPException:
@@ -383,7 +403,12 @@ class FileService:
         await self._items.hard_delete(user_id, item_id)
 
     async def complete_upload(
-        self, user_id: str, item_id: str, *, content_type: str | None = None
+        self,
+        user_id: str,
+        item_id: str,
+        *,
+        content_type: str | None = None,
+        activity_action: str | None = "uploaded",
     ) -> Item:
         """Confirm an upload by checking S3 directly.
 
@@ -391,7 +416,9 @@ class FileService:
         caller cannot under-report usage or mark a file ready that was
         never actually uploaded. `content_type` is only passed by the
         in-place-edit flow, where the saved bytes are always a re-encoded
-        JPEG regardless of the original format.
+        JPEG regardless of the original format. `activity_action` labels
+        the feed entry — "uploaded" for a new file, "edited"/"new_version"
+        for the replace flows (None to skip logging).
         """
         item = await self._require_item(user_id, item_id)
         if item.is_folder or not item.s3_key:
@@ -409,6 +436,8 @@ class FileService:
         updated = await self._items.mark_ready(user_id, item_id, size, content_type=content_type)
         if updated is None:  # pragma: no cover - lost a concurrent delete
             raise self._not_found()
+        if activity_action is not None:
+            await self._log(user_id, activity_action, item_name=updated.name)
         return updated
 
     async def start_replace(self, user_id: str, item_id: str) -> str:
@@ -539,7 +568,18 @@ class FileService:
         )
         if updated is None:  # pragma: no cover - lost a concurrent delete
             raise self._not_found()
+        await self._log(
+            user_id, "restored_version", item_name=updated.name,
+            detail=f"version {version.version_number}",
+        )
         return updated
+
+    # --- activity feed --------------------------------------------------
+
+    async def list_activity(self, user_id: str, *, limit: int = 100):
+        if self._activity is None:
+            return []
+        return await self._activity.list_for_user(user_id, limit=self._clamp(limit))
 
     async def version_download_url(
         self, user_id: str, item_id: str, version_id: str
@@ -666,6 +706,12 @@ class FileService:
         )
         if updated is None:  # pragma: no cover
             raise self._not_found()
+        # Only rename/move are worth a feed entry — recoloring/starring is
+        # cosmetic noise. A rename that also moved counts as a rename here.
+        if name is not None and name != item.name:
+            await self._log(user_id, "renamed", item_name=item.name, detail=updated.name)
+        elif move and parent_id != item.parent_id:
+            await self._log(user_id, "moved", item_name=updated.name)
         return updated
 
     async def star(self, user_id: str, item_ids: list[str]) -> int:
@@ -701,6 +747,10 @@ class FileService:
             )
             if result is not None:
                 moved += 1
+        if moved:
+            await self._log(
+                user_id, "moved", detail=f"{moved} item{'s' if moved != 1 else ''}"
+            )
         return moved
 
     async def trash(self, user_id: str, item_ids: list[str]) -> int:
@@ -710,23 +760,35 @@ class FileService:
         through the tree while still counting toward usage.
         """
         targets: list[str] = []
+        top_names: list[str] = []
         for item_id in item_ids:
             item = await self._items.get(user_id, item_id)
             if item is None:
                 continue
             targets.append(item.id)
+            top_names.append(item.name)
             if item.is_folder:
                 targets.extend(d.id for d in await self._items.descendants(user_id, item.id))
         if not targets:
             return 0
-        return await self._items.trash(user_id, list(dict.fromkeys(targets)))
+        count = await self._items.trash(user_id, list(dict.fromkeys(targets)))
+        if count:
+            name = top_names[0] if len(top_names) == 1 else f"{len(top_names)} items"
+            await self._log(user_id, "trashed", item_name=name)
+        return count
 
     async def restore(self, user_id: str, item_ids: list[str]) -> int:
-        return await self._items.restore(user_id, item_ids)
+        count = await self._items.restore(user_id, item_ids)
+        if count:
+            await self._log(
+                user_id, "restored", detail=f"{count} item{'s' if count != 1 else ''}"
+            )
+        return count
 
     async def delete_permanently(self, user_id: str, item_ids: list[str]) -> int:
         """Remove items and their bytes for good."""
         removed = 0
+        removed_names: list[str] = []
         for item_id in item_ids:
             item = await self._items.get(user_id, item_id, include_trashed=True)
             if item is None:
@@ -735,6 +797,10 @@ class FileService:
             await self._remove_versions(user_id, item.id)
             if await self._items.hard_delete(user_id, item.id):
                 removed += 1
+                removed_names.append(item.name)
+        if removed:
+            name = removed_names[0] if removed == 1 else f"{removed} items"
+            await self._log(user_id, "deleted", item_name=name)
         return removed
 
     async def _remove_versions(self, user_id: str, item_id: str) -> None:

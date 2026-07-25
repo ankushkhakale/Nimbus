@@ -18,6 +18,8 @@ from app.models.user import UserInDB
 from app.repositories.item_repository import DEFAULT_PAGE_SIZE, DEFAULT_SORT, SORT_SPECS
 from app.schemas.files import (
     AbortMultipartUploadRequest,
+    ActivityFeedResponse,
+    ActivityResponse,
     BulkItemsRequest,
     BulkResultResponse,
     CategoryUsage,
@@ -226,6 +228,28 @@ async def list_trash(
 
 
 # --- usage -------------------------------------------------------------
+
+
+@router.get("/activity", response_model=ActivityFeedResponse)
+async def read_activity(
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> ActivityFeedResponse:
+    """Recent things that happened to this user's files. TTL-bounded, so
+    it's a rolling recent history rather than a full audit log."""
+    entries = await files.list_activity(user.id)
+    return ActivityFeedResponse(
+        activity=[
+            ActivityResponse(
+                id=e.id,
+                action=e.action,
+                item_name=e.item_name,
+                detail=e.detail,
+                created_at=e.created_at,
+            )
+            for e in entries
+        ]
+    )
 
 
 @router.get("/usage", response_model=UsageResponse)
@@ -487,7 +511,7 @@ async def complete_new_version(
 ) -> ItemResponse:
     # Keeps the item's existing content_type — a new version is the same
     # kind of file, so size is re-read from S3 but the type is unchanged.
-    item = await files.complete_upload(user.id, item_id)
+    item = await files.complete_upload(user.id, item_id, activity_action="new_version")
     return ItemResponse.from_item(item)
 
 
@@ -534,7 +558,9 @@ async def complete_replace(
     user: UserInDB = Depends(get_current_user),
     files: FileService = Depends(get_file_service),
 ) -> ItemResponse:
-    item = await files.complete_upload(user.id, item_id, content_type="image/jpeg")
+    item = await files.complete_upload(
+        user.id, item_id, content_type="image/jpeg", activity_action="edited"
+    )
     return ItemResponse.from_item(item)
 
 

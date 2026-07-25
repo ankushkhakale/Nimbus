@@ -44,6 +44,7 @@ import { UserMenu } from "@/components/UserMenu";
 import { ConfirmModal, Modal, PromptModal } from "@/components/ui/Modal";
 import { MenuAction, OverflowMenu } from "@/components/ui/OverflowMenu";
 import { downloadItemsAsZip } from "@/lib/zip-download";
+import { ActivityPanel } from "./ActivityPanel";
 import { BulkRenameDialog } from "./BulkRenameDialog";
 import { ContextMenu, ContextMenuState } from "./ContextMenu";
 import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
@@ -178,6 +179,7 @@ export function FileBrowser() {
   const [duplicatesOpen, setDuplicatesOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [sharedWithMeOpen, setSharedWithMeOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
   const [compareItems, setCompareItems] = useState<[Item, Item] | null>(null);
   const [undo, setUndo] = useState<UndoAction | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -475,6 +477,7 @@ export function FileBrowser() {
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onOpenShared={() => setSharedWithMeOpen(true)}
+        onOpenActivity={() => setActivityOpen(true)}
       />
 
       <main
@@ -846,6 +849,8 @@ export function FileBrowser() {
 
       {sharedWithMeOpen && <SharedWithMePanel onClose={() => setSharedWithMeOpen(false)} />}
 
+      {activityOpen && <ActivityPanel onClose={() => setActivityOpen(false)} />}
+
       {compareItems && (
         <ComparePanel items={compareItems} onClose={() => setCompareItems(null)} />
       )}
@@ -953,6 +958,7 @@ function Sidebar({
   open,
   onClose,
   onOpenShared,
+  onOpenActivity,
 }: {
   view: View;
   setView: (v: View) => void;
@@ -960,6 +966,7 @@ function Sidebar({
   open: boolean;
   onClose: () => void;
   onOpenShared: () => void;
+  onOpenActivity: () => void;
 }) {
   return (
     <>
@@ -1054,6 +1061,30 @@ function Sidebar({
           >
             <Share2 size={16} />
             Shared with me
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenActivity}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "10px 12px",
+              borderRadius: "var(--radius-md)",
+              background: "transparent",
+              color: "var(--text-med)",
+              fontWeight: 500,
+              border: "none",
+              borderLeft: "3px solid transparent",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontSize: 14,
+              textAlign: "left",
+            }}
+          >
+            <History size={16} />
+            Activity
           </button>
         </nav>
 
