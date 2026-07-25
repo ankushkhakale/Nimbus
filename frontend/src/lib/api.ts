@@ -250,6 +250,13 @@ export const auth = {
    * security section. */
   loginActivity: (token: string) =>
     request<{ logins: LoginActivity[] }>("/auth/login-activity", { token }),
+
+  /** Active sessions (signed-in devices) for this account. */
+  sessions: (token: string) => request<{ sessions: Session[] }>("/auth/sessions", { token }),
+
+  /** Sign out one other device by revoking its session. */
+  revokeSession: (token: string, sessionId: string) =>
+    request<void>(`/auth/sessions/${sessionId}`, { method: "DELETE", token }),
 };
 
 export interface LoginActivity {
@@ -258,6 +265,15 @@ export interface LoginActivity {
   ip: string | null;
   user_agent: string | null;
   created_at: string;
+}
+
+export interface Session {
+  id: string;
+  user_agent: string | null;
+  ip: string | null;
+  started_at: string;
+  last_active: string;
+  current: boolean;
 }
 
 // --- files ---------------------------------------------------------------

@@ -27,7 +27,24 @@ class RefreshTokenRepository:
         # not accumulate and no cleanup job is needed for them.
         await self._collection.create_index("expires_at", expireAfterSeconds=0)
 
-    async def create(self, user_id: str, token_hash: str, expires_at: datetime) -> None:
+    async def create(
+        self,
+        user_id: str,
+        token_hash: str,
+        expires_at: datetime,
+        *,
+        session_id: str,
+        session_started_at: datetime,
+        user_agent: str | None = None,
+        ip: str | None = None,
+    ) -> None:
+        """Persist a refresh token.
+
+        `session_id` and `session_started_at` are carried across rotation
+        so a session — the whole rotated chain of tokens for one device
+        — can be listed and revoked as a unit, even though the token
+        itself changes on every use.
+        """
         await self._collection.insert_one(
             {
                 "user_id": user_id,
@@ -35,11 +52,34 @@ class RefreshTokenRepository:
                 "expires_at": expires_at,
                 "created_at": datetime.now(timezone.utc),
                 "used_at": None,
+                "session_id": session_id,
+                "session_started_at": session_started_at,
+                "user_agent": user_agent,
+                "ip": ip,
             }
         )
 
     async def find(self, token_hash: str) -> dict | None:
         return await self._collection.find_one({"token_hash": token_hash})
+
+    async def list_sessions(self, user_id: str) -> list[dict]:
+        """One entry per active session — the live (unused, unexpired)
+        token of each rotated chain carries the current metadata."""
+        cursor = self._collection.find(
+            {
+                "user_id": user_id,
+                "used_at": None,
+                "expires_at": {"$gt": datetime.now(timezone.utc)},
+            }
+        ).sort("session_started_at", -1)
+        return [doc async for doc in cursor]
+
+    async def revoke_session(self, user_id: str, session_id: str) -> int:
+        """Delete every token in one session's rotated chain."""
+        result = await self._collection.delete_many(
+            {"user_id": user_id, "session_id": session_id}
+        )
+        return result.deleted_count
 
     async def mark_used(self, token_hash: str) -> bool:
         """Consume a token. False if it was already used — i.e. replayed."""

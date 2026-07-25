@@ -75,3 +75,18 @@ class LoginActivityResponse(BaseModel):
 
 class LoginActivityListResponse(BaseModel):
     logins: list[LoginActivityResponse]
+
+
+class SessionResponse(BaseModel):
+    id: str
+    user_agent: str | None
+    ip: str | None
+    started_at: datetime
+    last_active: datetime
+    # True for the session making the request, so the UI can label it
+    # "This device" and steer the user away from revoking it by accident.
+    current: bool
+
+
+class SessionListResponse(BaseModel):
+    sessions: list[SessionResponse]

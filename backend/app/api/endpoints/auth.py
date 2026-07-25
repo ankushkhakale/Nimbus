@@ -21,6 +21,8 @@ from app.schemas.auth import (
     LoginRequest,
     OAuthCallbackRequest,
     RegisterRequest,
+    SessionListResponse,
+    SessionResponse,
     TokenResponse,
     UpdateProfileRequest,
     UserPublic,
@@ -129,7 +131,12 @@ async def login(
 ) -> TokenResponse:
     user = await auth_service.authenticate(payload.email, payload.password)
     await _record_login(logins, user, "password", request)
-    _set_refresh_cookie(response, await auth_service.issue_refresh_token(user))
+    _set_refresh_cookie(
+        response,
+        await auth_service.issue_refresh_token(
+            user, user_agent=request.headers.get("user-agent"), ip=_client_ip(request)
+        ),
+    )
     return TokenResponse(access_token=AuthService.issue_token(user))
 
 
@@ -153,6 +160,44 @@ async def read_login_activity(
             for e in entries
         ]
     )
+
+
+@router.get("/sessions", response_model=SessionListResponse)
+async def list_sessions(
+    user: UserInDB = Depends(get_current_user),
+    nimbus_refresh: str | None = Cookie(default=None),
+    auth_service: AuthService = Depends(get_auth_service),
+) -> SessionListResponse:
+    """Active sessions (signed-in devices) for this account. The session
+    matching the caller's own refresh cookie is flagged `current` so the
+    UI can label it and avoid an accidental self-revoke."""
+    current = await auth_service.session_id_for_token(nimbus_refresh)
+    records = await auth_service.list_sessions(user.id)
+    return SessionListResponse(
+        sessions=[
+            SessionResponse(
+                id=r["session_id"],
+                user_agent=r.get("user_agent"),
+                ip=r.get("ip"),
+                started_at=r["session_started_at"],
+                last_active=r["created_at"],
+                current=r["session_id"] == current,
+            )
+            for r in records
+        ]
+    )
+
+
+@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_session(
+    session_id: str,
+    user: UserInDB = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service),
+) -> None:
+    """Sign out one other device by revoking its whole rotated token
+    chain. Revoking the current session is allowed too — it just means
+    this browser will fail its next token refresh."""
+    await auth_service.revoke_session(user.id, session_id)
 
 
 @router.get("/config", response_model=AuthConfigResponse)
@@ -200,7 +245,12 @@ async def oauth_callback(
         identity.email, identity.full_name, identity.provider
     )
     await _record_login(logins, user, identity.provider, request)
-    _set_refresh_cookie(response, await auth_service.issue_refresh_token(user))
+    _set_refresh_cookie(
+        response,
+        await auth_service.issue_refresh_token(
+            user, user_agent=request.headers.get("user-agent"), ip=_client_ip(request)
+        ),
+    )
     return TokenResponse(access_token=AuthService.issue_token(user))
 
 

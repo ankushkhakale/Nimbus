@@ -1,4 +1,6 @@
 import logging
+from datetime import datetime, timezone
+from uuid import uuid4
 
 from fastapi import HTTPException, status
 from pymongo.errors import DuplicateKeyError
@@ -123,12 +125,35 @@ class AuthService:
     def issue_token(user: UserInDB) -> str:
         return create_access_token(subject=user.id)
 
-    async def issue_refresh_token(self, user: UserInDB) -> str:
-        """Mint a refresh token and record its hash."""
+    async def issue_refresh_token(
+        self,
+        user: UserInDB,
+        *,
+        session_id: str | None = None,
+        session_started_at: datetime | None = None,
+        user_agent: str | None = None,
+        ip: str | None = None,
+    ) -> str:
+        """Mint a refresh token and record its hash.
+
+        A fresh login passes no session_id, so a new session is started
+        here. Rotation passes the existing session's id and start time so
+        the new token joins the same session rather than appearing as a
+        new device.
+        """
         if self._refresh is None:  # pragma: no cover - wiring guard
             raise RuntimeError("Refresh token repository is not configured.")
         token = new_refresh_token()
-        await self._refresh.create(user.id, hash_refresh_token(token), refresh_token_expiry())
+        now = datetime.now(timezone.utc)
+        await self._refresh.create(
+            user.id,
+            hash_refresh_token(token),
+            refresh_token_expiry(),
+            session_id=session_id or uuid4().hex,
+            session_started_at=session_started_at or now,
+            user_agent=user_agent,
+            ip=ip,
+        )
         return token
 
     async def rotate_refresh_token(self, token: str) -> tuple[UserInDB, str]:
@@ -170,7 +195,34 @@ class AuthService:
         # deleted. Deleting it would make a replay indistinguishable from
         # an unknown token, and reuse detection depends on telling those
         # apart. The TTL index removes it once it expires anyway.
-        return user, await self.issue_refresh_token(user)
+        #
+        # Carry the session forward so the rotated token stays part of the
+        # same device's session rather than looking like a new sign-in.
+        return user, await self.issue_refresh_token(
+            user,
+            session_id=record.get("session_id"),
+            session_started_at=record.get("session_started_at"),
+            user_agent=record.get("user_agent"),
+            ip=record.get("ip"),
+        )
+
+    async def list_sessions(self, user_id: str) -> list[dict]:
+        if self._refresh is None:  # pragma: no cover - wiring guard
+            return []
+        return await self._refresh.list_sessions(user_id)
+
+    async def revoke_session(self, user_id: str, session_id: str) -> int:
+        if self._refresh is None:  # pragma: no cover - wiring guard
+            return 0
+        return await self._refresh.revoke_session(user_id, session_id)
+
+    async def session_id_for_token(self, token: str | None) -> str | None:
+        """The session a raw refresh token belongs to, so the caller's own
+        session can be flagged as 'this device' in the list."""
+        if self._refresh is None or not token:
+            return None
+        record = await self._refresh.find(hash_refresh_token(token))
+        return record.get("session_id") if record else None
 
     async def sign_out_everywhere(self, user_id: str) -> None:
         """Revoke every refresh token for this account, on every device.

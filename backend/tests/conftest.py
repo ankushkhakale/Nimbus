@@ -630,12 +630,27 @@ class FakeRefreshTokenRepository:
     def __init__(self):
         self.rows: dict[str, dict] = {}
 
-    async def create(self, user_id: str, token_hash: str, expires_at) -> None:
+    async def create(
+        self,
+        user_id: str,
+        token_hash: str,
+        expires_at,
+        *,
+        session_id: str = "session",
+        session_started_at=None,
+        user_agent=None,
+        ip=None,
+    ) -> None:
         self.rows[token_hash] = {
             "user_id": user_id,
             "token_hash": token_hash,
             "expires_at": expires_at,
+            "created_at": datetime.now(timezone.utc),
             "used_at": None,
+            "session_id": session_id,
+            "session_started_at": session_started_at or datetime.now(timezone.utc),
+            "user_agent": user_agent,
+            "ip": ip,
         }
 
     async def find(self, token_hash: str) -> dict | None:
@@ -653,6 +668,24 @@ class FakeRefreshTokenRepository:
 
     async def revoke_all_for_user(self, user_id: str) -> int:
         doomed = [h for h, r in self.rows.items() if r["user_id"] == user_id]
+        for h in doomed:
+            del self.rows[h]
+        return len(doomed)
+
+    async def list_sessions(self, user_id: str) -> list[dict]:
+        now = datetime.now(timezone.utc)
+        return [
+            r
+            for r in self.rows.values()
+            if r["user_id"] == user_id and r["used_at"] is None and r["expires_at"] > now
+        ]
+
+    async def revoke_session(self, user_id: str, session_id: str) -> int:
+        doomed = [
+            h
+            for h, r in self.rows.items()
+            if r["user_id"] == user_id and r.get("session_id") == session_id
+        ]
         for h in doomed:
             del self.rows[h]
         return len(doomed)
