@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Clock,
   Cloud,
+  Columns2,
   Download,
   File as FileIcon,
   FileText,
@@ -42,6 +43,7 @@ import { OverflowMenu } from "@/components/ui/OverflowMenu";
 import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
 import { Lightbox } from "./Lightbox";
 import { MoveDialog } from "./MoveDialog";
+import { ComparePanel } from "./ComparePanel";
 import { ShareDialog } from "./ShareDialog";
 import { SharedWithMePanel } from "./SharedWithMePanel";
 import { DuplicatesPanel } from "./DuplicatesPanel";
@@ -118,6 +120,7 @@ export function FileBrowser() {
   const [duplicatesOpen, setDuplicatesOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [sharedWithMeOpen, setSharedWithMeOpen] = useState(false);
+  const [compareItems, setCompareItems] = useState<[Item, Item] | null>(null);
   const setViewMode = (mode: ViewMode) => {
     setViewModeState(mode);
     persistViewMode(mode);
@@ -316,6 +319,9 @@ export function FileBrowser() {
               onRestore={() => void guard(() => b.restoreItems([...selected]))}
               onDeleteForever={() =>
                 setDialog({ kind: "deleteForever", items: b.selectedItems })
+              }
+              onCompare={
+                selected.size === 2 ? () => setCompareItems(b.selectedItems as [Item, Item]) : undefined
               }
             />
           )}
@@ -573,6 +579,10 @@ export function FileBrowser() {
       )}
 
       {sharedWithMeOpen && <SharedWithMePanel onClose={() => setSharedWithMeOpen(false)} />}
+
+      {compareItems && (
+        <ComparePanel items={compareItems} onClose={() => setCompareItems(null)} />
+      )}
     </div>
   );
 }
@@ -1154,6 +1164,7 @@ function SelectionBar({
   onTrash,
   onRestore,
   onDeleteForever,
+  onCompare,
 }: {
   count: number;
   total: number;
@@ -1164,6 +1175,7 @@ function SelectionBar({
   onTrash: () => void;
   onRestore: () => void;
   onDeleteForever: () => void;
+  onCompare?: () => void;
 }) {
   const allSelected = count > 0 && count >= total;
   const checkboxRef = useRef<HTMLInputElement>(null);
@@ -1224,6 +1236,11 @@ function SelectionBar({
             </>
           ) : (
             <>
+              {onCompare && (
+                <button type="button" className="btn-secondary" onClick={onCompare}>
+                  <Columns2 size={15} /> Compare
+                </button>
+              )}
               <button type="button" className="btn-secondary" onClick={onMove}>
                 Move to…
               </button>
