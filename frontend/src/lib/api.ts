@@ -334,6 +334,15 @@ export const files = {
       token,
     }),
 
+  /** Groups of images with near-identical perceptual hashes. Read-only —
+   * nothing is deleted automatically. */
+  duplicates: (token: string) =>
+    request<{ groups: { items: Item[] }[] }>("/files/duplicates", { token }),
+
+  /** Groups of visually-similar images taken close together in time. */
+  photoStacks: (token: string) =>
+    request<{ groups: { items: Item[] }[] }>("/files/photo-stacks", { token }),
+
   trash: (token: string, opts: { offset?: number; limit?: number } = {}) =>
     request<Page<Item>>(`/files/trash${qs({ offset: opts.offset, limit: opts.limit })}`, {
       token,

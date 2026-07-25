@@ -34,3 +34,8 @@ class ObjectStorage(ABC):
         Used to confirm an upload actually landed (and how big it was)
         before trusting client-reported metadata.
         """
+
+    @abstractmethod
+    def metadata(self, key: str) -> dict[str, str] | None:
+        """User-supplied object metadata (e.g. the thumbnailer's
+        perceptual hash), or None if the object is absent."""

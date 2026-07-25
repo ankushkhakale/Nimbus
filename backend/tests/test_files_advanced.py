@@ -2,6 +2,8 @@
 
 from datetime import datetime, timedelta, timezone
 
+from app.storage.keys import thumbnail_key
+
 FILES = "/api/v1/files"
 
 
@@ -19,6 +21,16 @@ def _ready_file(client, h, storage, repo, name, parent=None, ctype="text/plain",
     ).json()["item"]["id"]
     storage.uploaded[repo._items[item_id].s3_key] = size
     client.post(f"{FILES}/{item_id}/complete", headers=h)
+    return item_id
+
+
+def _ready_image_with_hash(client, h, storage, repo, name, phash, parent=None):
+    """A ready image whose thumbnail already carries a perceptual hash —
+    what the thumbnailer Lambda would have written."""
+    item_id = _ready_file(client, h, storage, repo, name, parent, "image/jpeg")
+    thumb_key = thumbnail_key(repo._items[item_id].s3_key)
+    storage.uploaded[thumb_key] = 1
+    storage.object_metadata[thumb_key] = {"phash": phash}
     return item_id
 
 
@@ -607,3 +619,76 @@ def test_color_rejects_values_outside_the_fixed_palette(client, auth_headers):
         f"{FILES}/{folder}", json={"color": "javascript:alert(1)"}, headers=h
     )
     assert resp.status_code == 422
+
+
+# --- duplicate detection / photo stacks --------------------------------
+
+def test_duplicates_groups_near_identical_hashes(client, auth_headers, fake_storage,
+                                                 fake_item_repo):
+    h = auth_headers()
+    _ready_image_with_hash(client, h, fake_storage, fake_item_repo, "a.jpg", "0" * 16)
+    # 1 bit different — well within the duplicate threshold.
+    _ready_image_with_hash(client, h, fake_storage, fake_item_repo, "b.jpg", "1" + "0" * 15)
+    _ready_image_with_hash(client, h, fake_storage, fake_item_repo, "c.jpg", "f" * 16)
+
+    body = client.get(f"{FILES}/duplicates", headers=h).json()
+    assert len(body["groups"]) == 1
+    names = {i["name"] for i in body["groups"][0]["items"]}
+    assert names == {"a.jpg", "b.jpg"}
+
+
+def test_duplicates_ignores_images_without_a_hash_yet(client, auth_headers, fake_storage,
+                                                      fake_item_repo):
+    h = auth_headers()
+    _ready_image_with_hash(client, h, fake_storage, fake_item_repo, "a.jpg", "0" * 16)
+    # Uploaded but the thumbnailer hasn't run (or never will) — no metadata.
+    _ready_file(client, h, fake_storage, fake_item_repo, "b.jpg", None, "image/jpeg")
+
+    body = client.get(f"{FILES}/duplicates", headers=h).json()
+    assert body["groups"] == []
+
+
+def test_duplicates_are_isolated_per_user(client, auth_headers, fake_storage, fake_item_repo):
+    a = auth_headers("a@example.com")
+    b = auth_headers("b@example.com")
+    _ready_image_with_hash(client, a, fake_storage, fake_item_repo, "a1.jpg", "0" * 16)
+    _ready_image_with_hash(client, a, fake_storage, fake_item_repo, "a2.jpg", "0" * 16)
+
+    assert client.get(f"{FILES}/duplicates", headers=b).json()["groups"] == []
+
+
+def test_photo_stacks_requires_both_similarity_and_time_proximity(
+    client, auth_headers, fake_storage, fake_item_repo
+):
+    h = auth_headers()
+    now = datetime.now(timezone.utc)
+
+    burst_a = _ready_image_with_hash(client, h, fake_storage, fake_item_repo, "burst-a.jpg", "0" * 16)
+    burst_b = _ready_image_with_hash(
+        client, h, fake_storage, fake_item_repo, "burst-b.jpg", "3" + "0" * 15  # 2 bits off
+    )
+    _set_taken_at(fake_item_repo, burst_a, now)
+    _set_taken_at(fake_item_repo, burst_b, now + timedelta(seconds=5))
+
+    # Similar hash, but taken a year apart — not a stack.
+    far_apart = _ready_image_with_hash(
+        client, h, fake_storage, fake_item_repo, "far-apart.jpg", "1" + "0" * 15
+    )
+    _set_taken_at(fake_item_repo, far_apart, now - timedelta(days=365))
+
+    body = client.get(f"{FILES}/photo-stacks", headers=h).json()
+    assert len(body["groups"]) == 1
+    names = {i["name"] for i in body["groups"][0]["items"]}
+    assert names == {"burst-a.jpg", "burst-b.jpg"}
+
+
+def test_photo_stacks_are_isolated_per_user(client, auth_headers, fake_storage, fake_item_repo):
+    a = auth_headers("a@example.com")
+    b = auth_headers("b@example.com")
+    now = datetime.now(timezone.utc)
+    item1 = _ready_image_with_hash(client, a, fake_storage, fake_item_repo, "a1.jpg", "0" * 16)
+    item2 = _ready_image_with_hash(client, a, fake_storage, fake_item_repo, "a2.jpg", "0" * 16)
+    _set_taken_at(fake_item_repo, item1, now)
+    _set_taken_at(fake_item_repo, item2, now)
+
+    assert client.get(f"{FILES}/photo-stacks", headers=b).json()["groups"] == []

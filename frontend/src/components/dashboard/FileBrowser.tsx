@@ -12,6 +12,7 @@ import {
   FolderPlus,
   Folder as FolderIcon,
   Image as ImageIcon,
+  Layers,
   LayoutGrid,
   List,
   Loader2,
@@ -39,6 +40,7 @@ import { OverflowMenu } from "@/components/ui/OverflowMenu";
 import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
 import { Lightbox } from "./Lightbox";
 import { MoveDialog } from "./MoveDialog";
+import { DuplicatesPanel } from "./DuplicatesPanel";
 import { OnThisDay } from "./OnThisDay";
 import { PhotoGrid } from "./PhotoGrid";
 import { SearchFilterPanel } from "./SearchFilterPanel";
@@ -107,6 +109,7 @@ export function FileBrowser() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [viewMode, setViewModeState] = useState<ViewMode>(() => getViewMode());
+  const [duplicatesOpen, setDuplicatesOpen] = useState(false);
   const setViewMode = (mode: ViewMode) => {
     setViewModeState(mode);
     persistViewMode(mode);
@@ -259,6 +262,7 @@ export function FileBrowser() {
           onOpenSidebar={() => setSidebarOpen(true)}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
+          onOpenDuplicates={() => setDuplicatesOpen(true)}
         />
 
         <input
@@ -534,6 +538,13 @@ export function FileBrowser() {
       {shortcutsOpen && (
         <KeyboardShortcutsPanel onClose={() => setShortcutsOpen(false)} />
       )}
+
+      {duplicatesOpen && (
+        <DuplicatesPanel
+          onClose={() => setDuplicatesOpen(false)}
+          onTrash={(ids) => guard(() => b.trashItems(ids))}
+        />
+      )}
     </div>
   );
 }
@@ -713,6 +724,7 @@ function Toolbar({
   onOpenSidebar,
   viewMode,
   onViewModeChange,
+  onOpenDuplicates,
 }: {
   browser: ReturnType<typeof useFiles>;
   searchRef: React.RefObject<HTMLInputElement | null>;
@@ -721,6 +733,7 @@ function Toolbar({
   onOpenSidebar: () => void;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
+  onOpenDuplicates: () => void;
 }) {
   const readOnly = browser.view === "trash";
   return (
@@ -800,6 +813,13 @@ function Toolbar({
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {browser.view === "photos" && !browser.query && (
+          <button type="button" className="btn-secondary" onClick={onOpenDuplicates}>
+            <Layers size={15} />
+            <span className="btn-label">Find duplicates</span>
+          </button>
+        )}
+
         {browser.view === "files" && !browser.query && (
           <select
             value={browser.sort}
