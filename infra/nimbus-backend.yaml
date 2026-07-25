@@ -51,9 +51,22 @@ Parameters:
       deploying principal, which the NimbusDeploy policy does not grant by
       default — leaving this false lets the rest of the stack deploy, and
       trash simply accumulates until it is enabled.
+  FfmpegLayerArn:
+    Type: String
+    Default: ""
+    Description: >-
+      ARN of a Lambda layer providing an ffmpeg binary at /opt/bin/ffmpeg,
+      used by the thumbnailer to grab a frame from uploaded videos. Left
+      empty by default — deliberately not defaulted to a third-party
+      public layer ARN, since that would silently wire an unreviewed
+      external binary into the function. Until this is set, video
+      thumbnailing is inert: thumbnailer/app.py checks for the binary at
+      runtime and quietly skips it, and video items keep falling back to
+      their original file exactly as they do today.
 
 Conditions:
   WithPurgeSchedule: !Equals [!Ref EnablePurgeSchedule, "true"]
+  HasFfmpegLayer: !Not [!Equals [!Ref FfmpegLayerArn, ""]]
 
 Resources:
   NimbusFunction:
@@ -191,6 +204,7 @@ Resources:
       Code:
         S3Bucket: !Ref CodeS3Bucket
         S3Key: !Ref ThumbnailerS3Key
+      Layers: !If [HasFfmpegLayer, [!Ref FfmpegLayerArn], !Ref "AWS::NoValue"]
       Environment:
         Variables:
           THUMBNAIL_MAX_EDGE: "512"

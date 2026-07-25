@@ -12,6 +12,8 @@ cannot re-trigger it. That invariant must hold if either prefix changes.
 
 import logging
 import os
+import subprocess
+import tempfile
 import urllib.parse
 from io import BytesIO
 
@@ -27,6 +29,16 @@ MAX_EDGE = int(os.environ.get("THUMBNAIL_MAX_EDGE", "512"))
 # Above this, decoding risks exhausting the function's memory. Such files
 # are skipped rather than crashing the invocation.
 MAX_SOURCE_BYTES = int(os.environ.get("THUMBNAIL_MAX_SOURCE_BYTES", str(40 * 1024 * 1024)))
+# Videos are read whole into /tmp for ffmpeg (which needs a seekable
+# file), so this stays comfortably under the function's default 512MB
+# ephemeral storage rather than matching the image limit.
+MAX_VIDEO_SOURCE_BYTES = int(
+    os.environ.get("THUMBNAIL_MAX_VIDEO_SOURCE_BYTES", str(200 * 1024 * 1024))
+)
+# Provided by an optional Lambda layer (see infra/nimbus-backend.yaml's
+# FfmpegLayerArn parameter) — absent by default, in which case this path
+# simply doesn't exist and video thumbnailing quietly no-ops.
+FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "/opt/bin/ffmpeg")
 
 SOURCE_PREFIX = "users/"
 THUMBNAIL_PREFIX = "thumbnails/"
@@ -37,13 +49,9 @@ def thumbnail_key(object_key: str) -> str:
     return f"{THUMBNAIL_PREFIX}{object_key[len(SOURCE_PREFIX):]}.jpg"
 
 
-def _is_image(bucket: str, key: str) -> bool:
+def _head(bucket: str, key: str) -> tuple[str, int]:
     head = s3.head_object(Bucket=bucket, Key=key)
-    content_type = (head.get("ContentType") or "").lower()
-    if head["ContentLength"] > MAX_SOURCE_BYTES:
-        logger.info("Skipping %s: %d bytes exceeds limit", key, head["ContentLength"])
-        return False
-    return content_type.startswith("image/")
+    return (head.get("ContentType") or "").lower(), head["ContentLength"]
 
 
 def _compute_phash(image: Image.Image) -> str:
@@ -115,6 +123,49 @@ def _build_thumbnail(raw: bytes) -> tuple[bytes, str, tuple[float, float] | None
         return buffer.getvalue(), phash, gps
 
 
+def _build_video_thumbnail(raw: bytes) -> bytes | None:
+    """Grab one JPEG frame via ffmpeg, if the layer providing it is
+    attached (FFMPEG_BIN). Returns None rather than raising when the
+    binary is missing, the clip is unreadable, or ffmpeg times out — a
+    video simply falls back to its original file when there's no
+    thumbnail, exactly as it does today, so this is never fatal.
+    """
+    if not os.path.exists(FFMPEG_BIN):
+        return None
+    with tempfile.NamedTemporaryFile(suffix=".mp4") as src:
+        src.write(raw)
+        src.flush()
+        try:
+            result = subprocess.run(
+                [
+                    FFMPEG_BIN,
+                    "-y",
+                    "-ss",
+                    "00:00:01.000",
+                    "-i",
+                    src.name,
+                    "-frames:v",
+                    "1",
+                    "-vf",
+                    f"scale='min({MAX_EDGE},iw)':'min({MAX_EDGE},ih)':force_original_aspect_ratio=decrease",
+                    "-f",
+                    "image2",
+                    "-c:v",
+                    "mjpeg",
+                    "pipe:1",
+                ],
+                capture_output=True,
+                timeout=45,
+            )
+        except subprocess.TimeoutExpired:
+            logger.warning("ffmpeg timed out extracting a video frame")
+            return None
+    if result.returncode != 0 or not result.stdout:
+        logger.warning("ffmpeg failed to extract a video frame: %s", result.stderr[-500:])
+        return None
+    return result.stdout
+
+
 def handler(event, _context):
     generated = 0
 
@@ -128,20 +179,35 @@ def handler(event, _context):
             continue
 
         try:
-            if not _is_image(bucket, key):
+            content_type, size = _head(bucket, key)
+            is_image = content_type.startswith("image/")
+            is_video = content_type.startswith("video/")
+            if not is_image and not is_video:
+                continue
+
+            limit = MAX_VIDEO_SOURCE_BYTES if is_video else MAX_SOURCE_BYTES
+            if size > limit:
+                logger.info("Skipping %s: %d bytes exceeds limit", key, size)
                 continue
 
             raw = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
-            thumbnail, phash, gps = _build_thumbnail(raw)
             destination = thumbnail_key(key)
 
-            metadata = {"phash": phash}
-            if gps is not None:
-                # Same free-ride-on-the-PUT trick as phash: only present
-                # when the photo actually carries GPS EXIF, so absence is
-                # the normal case rather than an error.
-                metadata["lat"] = f"{gps[0]:.6f}"
-                metadata["lon"] = f"{gps[1]:.6f}"
+            if is_video:
+                thumbnail = _build_video_thumbnail(raw)
+                if thumbnail is None:
+                    continue
+                metadata = {}
+            else:
+                thumbnail, phash, gps = _build_thumbnail(raw)
+                # Piggybacks derived data on the thumbnail object's own
+                # metadata rather than writing to Mongo — this Lambda
+                # deliberately has no database access, and object
+                # metadata is free to attach to a PUT it's already doing.
+                metadata = {"phash": phash}
+                if gps is not None:
+                    metadata["lat"] = f"{gps[0]:.6f}"
+                    metadata["lon"] = f"{gps[1]:.6f}"
 
             s3.put_object(
                 Bucket=bucket,
@@ -149,10 +215,6 @@ def handler(event, _context):
                 Body=thumbnail,
                 ContentType="image/jpeg",
                 CacheControl="public, max-age=31536000, immutable",
-                # Piggybacks derived data on the thumbnail object's own
-                # metadata rather than writing to Mongo — this Lambda
-                # deliberately has no database access, and object
-                # metadata is free to attach to a PUT it's already doing.
                 Metadata=metadata,
             )
             generated += 1
