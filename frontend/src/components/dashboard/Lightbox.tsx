@@ -11,11 +11,12 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, FileText, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, FileText, Printer, X } from "lucide-react";
 
 import { Item, files as filesApi } from "@/lib/api";
 import { formatBytes, formatRelativeDate, isAudio, isImage, isVideo } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
+import { ZoomableImage } from "./ZoomableImage";
 
 function isPdf(item: Item): boolean {
   return item.content_type === "application/pdf";
@@ -88,6 +89,36 @@ export function Lightbox({
     isVideo(item.content_type) ||
     isAudio(item.content_type);
 
+  // Printing goes through a hidden iframe rather than window.print(), so
+  // only the media prints — not the whole dark-mode viewer chrome behind
+  // it. Scoped to images and PDFs; printing video/audio isn't meaningful.
+  const printable = url && (isImage(item.content_type) || isPdf(item));
+
+  const handlePrint = () => {
+    if (!url) return;
+    const frame = document.createElement("iframe");
+    frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+    frame.onload = () => {
+      if (isPdf(item)) {
+        // The PDF was the frame's own src (set below); it's already loaded.
+      } else {
+        const doc = frame.contentDocument;
+        if (doc) {
+          doc.body.style.margin = "0";
+          const img = doc.createElement("img");
+          img.src = url;
+          img.style.maxWidth = "100%";
+          doc.body.appendChild(img);
+        }
+      }
+      frame.contentWindow?.focus();
+      frame.contentWindow?.print();
+      setTimeout(() => frame.remove(), 1000);
+    };
+    document.body.appendChild(frame);
+    if (isPdf(item)) frame.src = url;
+  };
+
   return (
     <div
       role="dialog"
@@ -131,6 +162,18 @@ export function Lightbox({
         </div>
 
         <div style={{ display: "flex", gap: 10, flexShrink: 0 }}>
+          {printable && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={handlePrint}
+              aria-label="Print"
+              style={{ padding: "0 12px" }}
+            >
+              <Printer size={16} />
+              <span className="btn-label">Print</span>
+            </button>
+          )}
           <button
             type="button"
             className="btn-secondary"
@@ -208,12 +251,11 @@ export function Lightbox({
             style={{ width: "100%", maxWidth: 480 }}
           />
         ) : (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <ZoomableImage
+            key={item.id}
             src={url}
             alt={item.name}
             onError={() => setPreview({ id: item.id, url: null })}
-            style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
           />
         )}
 

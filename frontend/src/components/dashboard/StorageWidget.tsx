@@ -15,6 +15,16 @@ const CATEGORY_LABELS: Record<string, string> = {
   other: "Other",
 };
 
+// A small fixed palette rather than anything generated — five categories,
+// five colors, easy to keep legible against the dark surface.
+const CATEGORY_COLORS: Record<string, string> = {
+  images: "var(--primary)",
+  video: "#60a5fa",
+  audio: "#c084fc",
+  documents: "#4ade80",
+  other: "var(--text-low)",
+};
+
 export function StorageWidget({ usage }: { usage: UsageDetail | null }) {
   const { user } = useAuth();
   const stored = usage?.bytes_stored ?? 0;
@@ -72,22 +82,60 @@ export function StorageWidget({ usage }: { usage: UsageDetail | null }) {
       </p>
 
       {top.length > 0 && (
-        <ul style={{ listStyle: "none", margin: "10px 0 0", fontSize: 11.5 }}>
-          {top.map((c) => (
-            <li
-              key={c.category}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                color: "var(--text-med)",
-                padding: "2px 0",
-              }}
-            >
-              <span>{CATEGORY_LABELS[c.category] ?? c.category}</span>
-              <span>{formatBytes(c.bytes_stored)}</span>
-            </li>
-          ))}
-        </ul>
+        <>
+          <div
+            style={{
+              display: "flex",
+              height: 6,
+              borderRadius: 3,
+              overflow: "hidden",
+              marginTop: 12,
+              gap: 1,
+            }}
+          >
+            {top.map((c) => (
+              <div
+                key={c.category}
+                title={`${CATEGORY_LABELS[c.category] ?? c.category}: ${formatBytes(c.bytes_stored)}`}
+                style={{
+                  width: `${stored > 0 ? (c.bytes_stored / stored) * 100 : 0}%`,
+                  background: CATEGORY_COLORS[c.category] ?? "var(--text-low)",
+                }}
+              />
+            ))}
+          </div>
+
+          <ul style={{ listStyle: "none", margin: "10px 0 0", fontSize: 11.5 }}>
+            {top.map((c) => (
+              <li
+                key={c.category}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  justifyContent: "space-between",
+                  color: "var(--text-med)",
+                  padding: "2px 0",
+                }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span
+                    aria-hidden
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: "50%",
+                      background: CATEGORY_COLORS[c.category] ?? "var(--text-low)",
+                      flexShrink: 0,
+                    }}
+                  />
+                  {CATEGORY_LABELS[c.category] ?? c.category}
+                </span>
+                <span>{formatBytes(c.bytes_stored)}</span>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   );

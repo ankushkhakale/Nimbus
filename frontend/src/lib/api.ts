@@ -225,6 +225,13 @@ export const auth = {
 
   forgotPassword: (email: string) =>
     request<{ message: string }>("/auth/forgot-password", { method: "POST", body: { email } }),
+
+  /** Revokes every refresh token for this account — every device, not
+   * just this browser. The caller's own access token still lives until
+   * it naturally expires (it's a stateless JWT), so the caller should
+   * also call `logout()` locally right after this succeeds. */
+  signOutEverywhere: (token: string) =>
+    request<void>("/auth/me/sign-out-everywhere", { method: "POST", token }),
 };
 
 // --- files ---------------------------------------------------------------
@@ -274,6 +281,9 @@ export const files = {
 
   recent: (token: string, limit = 20) =>
     request<Item[]>(`/files/recent${qs({ limit })}`, { token }),
+
+  /** Photos taken on today's month and day in a previous year. */
+  onThisDay: (token: string) => request<Item[]>("/files/on-this-day", { token }),
 
   trash: (token: string, opts: { offset?: number; limit?: number } = {}) =>
     request<Page<Item>>(`/files/trash${qs({ offset: opts.offset, limit: opts.limit })}`, {

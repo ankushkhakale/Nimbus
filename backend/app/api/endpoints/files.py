@@ -116,6 +116,15 @@ async def list_recent(
     return [ItemResponse.from_item(i) for i in await files.recent(user.id, limit=limit)]
 
 
+@router.get("/on-this-day", response_model=list[ItemResponse])
+async def on_this_day(
+    user: UserInDB = Depends(get_current_user),
+    files: FileService = Depends(get_file_service),
+) -> list[ItemResponse]:
+    """Photos taken on today's month and day in a previous year."""
+    return [ItemResponse.from_item(i) for i in await files.on_this_day(user.id)]
+
+
 @router.get("/trash", response_model=PageResponse)
 async def list_trash(
     offset: int = Query(default=0, ge=0),

@@ -167,6 +167,21 @@ class FakeItemRepository:
         files.sort(key=lambda i: i.updated_at, reverse=True)
         return files[:limit]
 
+    async def on_this_day(self, user_id: str) -> list[Item]:
+        today = datetime.now(timezone.utc)
+        imgs = [
+            i for i in self._mine(user_id)
+            if i.type is ItemType.FILE
+            and i.status is UploadStatus.READY
+            and (i.content_type or "").startswith("image/")
+            and i.taken_at is not None
+            and i.taken_at.month == today.month
+            and i.taken_at.day == today.day
+            and i.taken_at.year != today.year
+        ]
+        imgs.sort(key=lambda i: i.taken_at, reverse=True)
+        return imgs
+
     async def list_trashed(
         self, user_id: str, *, offset: int = 0, limit: int = 100
     ) -> tuple[list[Item], int]:

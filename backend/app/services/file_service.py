@@ -143,6 +143,9 @@ class FileService:
     async def recent(self, user_id: str, *, limit: int = 20) -> list[Item]:
         return await self._items.list_recent(user_id, limit=self._clamp(limit))
 
+    async def on_this_day(self, user_id: str) -> list[Item]:
+        return await self._items.on_this_day(user_id)
+
     async def list_trash(self, user_id: str, *, offset: int, limit: int) -> tuple[list[Item], int]:
         return await self._items.list_trashed(
             user_id, offset=max(0, offset), limit=self._clamp(limit)

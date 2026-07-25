@@ -8,6 +8,7 @@ import {
   ExternalLink,
   HardDrive,
   Key,
+  Sliders,
   User as UserIcon,
 } from "lucide-react";
 
@@ -15,13 +16,21 @@ import { useAuth, errorMessage } from "@/lib/auth-context";
 import { auth as authApi } from "@/lib/api";
 import { FormError } from "@/components/FormError";
 import { formatBytes } from "@/lib/format";
+import {
+  getDefaultView,
+  getReducedMotionOverride,
+  setDefaultView,
+  setReducedMotionOverride,
+} from "@/lib/preferences";
+import type { View } from "@/lib/use-files";
 
-type Tab = "profile" | "storage" | "security" | "about";
+type Tab = "profile" | "storage" | "security" | "preferences" | "about";
 
 const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: "profile", label: "Profile", icon: <UserIcon size={16} /> },
   { key: "storage", label: "Storage", icon: <HardDrive size={16} /> },
   { key: "security", label: "Security", icon: <Key size={16} /> },
+  { key: "preferences", label: "Preferences", icon: <Sliders size={16} /> },
   { key: "about", label: "About", icon: <Cloud size={16} /> },
 ];
 
@@ -92,7 +101,13 @@ export default function SettingsPage() {
 
         {tab === "profile" && <ProfileTab />}
         {tab === "storage" && <StorageTab />}
-        {tab === "security" && <SecurityTab />}
+        {tab === "security" && (
+          <>
+            <SecurityTab />
+            <SignOutEverywhereCard />
+          </>
+        )}
+        {tab === "preferences" && <PreferencesTab />}
         {tab === "about" && <AboutTab />}
       </div>
     </div>
@@ -381,6 +396,113 @@ function SecurityTab() {
           {submitting ? "Saving…" : user.has_password ? "Change password" : "Set password"}
         </button>
       </form>
+    </div>
+  );
+}
+
+function SignOutEverywhereCard() {
+  const { token, logout } = useAuth();
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  if (!token) return null;
+
+  const handleSignOutEverywhere = async () => {
+    if (!window.confirm("Sign out of Nimbus on every device? You'll need to sign in again here too.")) {
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      await authApi.signOutEverywhere(token);
+      // Ends this browser's session too, since "everywhere" should mean
+      // everywhere — the server side is already revoked at this point.
+      await logout();
+    } catch (err) {
+      setError(errorMessage(err));
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="card" style={{ padding: 24, marginTop: 20 }}>
+      <h2 style={{ fontSize: 16, marginBottom: 4 }}>Sign out everywhere</h2>
+      <p style={{ fontSize: 13, color: "var(--text-med)", marginBottom: 20 }}>
+        Ends every signed-in session for this account, on every device — useful if you
+        signed in somewhere you no longer trust.
+      </p>
+      <FormError message={error} />
+      <button
+        type="button"
+        className="btn-secondary"
+        style={{ color: "var(--error)" }}
+        onClick={() => void handleSignOutEverywhere()}
+        disabled={submitting}
+      >
+        {submitting ? "Signing out…" : "Sign out everywhere"}
+      </button>
+    </div>
+  );
+}
+
+function PreferencesTab() {
+  const [defaultView, setDefaultViewState] = useState<View>(() => getDefaultView());
+  const [reducedMotion, setReducedMotionState] = useState(() => getReducedMotionOverride());
+
+  const handleDefaultView = (view: View) => {
+    setDefaultViewState(view);
+    setDefaultView(view);
+  };
+
+  const handleReducedMotion = (enabled: boolean) => {
+    setReducedMotionState(enabled);
+    setReducedMotionOverride(enabled);
+    document.documentElement.dataset.reducedMotion = enabled ? "true" : "false";
+  };
+
+  return (
+    <div className="card" style={{ padding: 24 }}>
+      <h2 style={{ fontSize: 16, marginBottom: 4 }}>Preferences</h2>
+      <p style={{ fontSize: 13, color: "var(--text-med)", marginBottom: 20 }}>
+        Stored in this browser only — these don&apos;t follow you to another device.
+      </p>
+
+      <div className="form-group">
+        <label className="form-label" htmlFor="default_view">
+          Default view on sign-in
+        </label>
+        <select
+          id="default_view"
+          className="form-input"
+          value={defaultView}
+          onChange={(e) => handleDefaultView(e.target.value as View)}
+          style={{ cursor: "pointer" }}
+        >
+          <option value="files">My Cloud</option>
+          <option value="photos">Photos</option>
+          <option value="videos">Videos</option>
+          <option value="recent">Recent</option>
+        </select>
+      </div>
+
+      <label
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          fontSize: 14,
+          cursor: "pointer",
+          marginTop: 20,
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={reducedMotion}
+          onChange={(e) => handleReducedMotion(e.target.checked)}
+          style={{ accentColor: "var(--primary)", cursor: "pointer" }}
+        />
+        Reduce motion (overrides your system setting)
+      </label>
     </div>
   );
 }

@@ -2,6 +2,8 @@ REGISTER_URL = "/api/v1/auth/register"
 LOGIN_URL = "/api/v1/auth/login"
 ME_URL = "/api/v1/auth/me"
 CHANGE_PASSWORD_URL = "/api/v1/auth/me/change-password"
+SIGN_OUT_EVERYWHERE_URL = "/api/v1/auth/me/sign-out-everywhere"
+REFRESH_URL = "/api/v1/auth/refresh"
 FORGOT_PASSWORD_URL = "/api/v1/auth/forgot-password"
 
 
@@ -232,3 +234,36 @@ def test_change_password_on_oauth_only_account_needs_no_current_password(
 
     me = client.get(ME_URL, headers={"Authorization": f"Bearer {token}"})
     assert "password" in me.json()["providers"]
+
+
+def test_sign_out_everywhere_revokes_the_refresh_cookie(client, auth_headers):
+    # auth_headers() already performed a login, so the refresh cookie for
+    # this session is sitting in the client's cookie jar.
+    headers = auth_headers()
+    resp = client.post(SIGN_OUT_EVERYWHERE_URL, headers=headers)
+    assert resp.status_code == 204
+
+    refreshed = client.post(REFRESH_URL)
+    assert refreshed.status_code == 401
+
+
+def test_sign_out_everywhere_requires_authorization(client):
+    resp = client.post(SIGN_OUT_EVERYWHERE_URL)
+    assert resp.status_code == 401
+
+
+def test_sign_out_everywhere_revokes_every_session_not_just_the_caller(client, auth_headers):
+    """Two logins for the same account, one sign-out-everywhere call, and
+    neither refresh token should survive."""
+    email = "owner@example.com"
+    first_headers = auth_headers(email)
+    # A second login for the same account rotates the jar's cookie onto a
+    # second, distinct refresh token — simulating a second device.
+    second_login = client.post(LOGIN_URL, json={"email": email, "password": "password123"})
+    assert second_login.cookies.get("nimbus_refresh")
+
+    client.post(SIGN_OUT_EVERYWHERE_URL, headers=first_headers)
+
+    # The jar still holds the second login's cookie; it must be dead too.
+    resp = client.post(REFRESH_URL)
+    assert resp.status_code == 401

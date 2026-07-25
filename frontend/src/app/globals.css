@@ -374,6 +374,18 @@ code, pre, .mono {
   }
 }
 
+/* Explicit in-app override (Settings -> Preferences), independent of the
+   OS-level media query above — same rules, triggered by a data attribute
+   set on <html> instead of a system setting. */
+html[data-reduced-motion="true"] *,
+html[data-reduced-motion="true"] *::before,
+html[data-reduced-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
 /* --- auth pages ------------------------------------------------------- */
 
 .auth-container {

@@ -19,6 +19,8 @@ import {
   uploadToS3,
 } from "./api";
 import { useAuth } from "./auth-context";
+import { notify } from "./notify";
+import { getDefaultView, getFolderSort, setFolderSort } from "./preferences";
 
 export type View = "files" | "photos" | "videos" | "recent" | "trash";
 
@@ -43,9 +45,9 @@ const PAGE_SIZE = 60;
 export function useFiles() {
   const { token } = useAuth();
 
-  const [view, setViewRaw] = useState<View>("files");
+  const [view, setViewRaw] = useState<View>(() => getDefaultView());
   const [trail, setTrail] = useState<Crumb[]>([ROOT]);
-  const [sort, setSort] = useState<SortKey>("name");
+  const [sort, setSortRaw] = useState<SortKey>(() => getFolderSort(null) ?? "name");
   const [query, setQuery] = useState("");
 
   const [items, setItems] = useState<Item[]>([]);
@@ -60,6 +62,23 @@ export function useFiles() {
   const [uploads, setUploads] = useState<UploadProgress[]>([]);
 
   const current = trail[trail.length - 1];
+
+  // Each folder remembers its own sort choice (e.g. a Downloads folder
+  // sorted by date vs. a Photos folder sorted by name). Switching folders
+  // restores whatever was last picked there, falling back to the current
+  // value rather than resetting to "name" every time.
+  useEffect(() => {
+    const stored = getFolderSort(current.id);
+    if (stored) setSortRaw(stored);
+  }, [current.id]);
+
+  const setSort = useCallback(
+    (next: SortKey) => {
+      setSortRaw(next);
+      setFolderSort(current.id, next);
+    },
+    [current.id]
+  );
 
   // Folder changes, view switches and searches all race. Only the newest
   // response may write to state, or a slow earlier one overwrites it.
@@ -281,6 +300,7 @@ export function useFiles() {
             setUploads((u) =>
               u.map((p) => (p.key === key ? { ...p, progress: 1, status: "done" } : p))
             );
+            notify("Upload complete", file.name);
           } catch (err) {
             setUploads((u) =>
               u.map((p) =>
