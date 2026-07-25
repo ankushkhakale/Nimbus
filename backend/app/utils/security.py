@@ -58,3 +58,16 @@ def hash_refresh_token(token: str) -> str:
 
 def refresh_token_expiry() -> datetime:
     return datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+
+
+# --- share links -----------------------------------------------------------
+
+
+def new_share_token() -> str:
+    """A high-entropy opaque token for a share link's URL.
+
+    Unlike a refresh token this is stored in plaintext (see Share's
+    docstring) — the entropy is what matters here, not hiding it once
+    issued.
+    """
+    return secrets.token_urlsafe(24)

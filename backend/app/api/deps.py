@@ -6,9 +6,11 @@ from app.database.mongodb import get_database
 from app.models.user import UserInDB
 from app.repositories.item_repository import ItemRepository
 from app.repositories.refresh_token_repository import RefreshTokenRepository
+from app.repositories.share_repository import ShareRepository
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
 from app.services.file_service import FileService
+from app.services.share_service import ShareService
 from app.storage.base import ObjectStorage
 from app.storage.s3_storage import S3ObjectStorage
 from app.utils.security import decode_access_token
@@ -61,6 +63,18 @@ def get_file_service(
     return FileService(items, storage)
 
 
+def get_share_repository(db: AsyncIOMotorDatabase = Depends(get_db)) -> ShareRepository:
+    return ShareRepository(db)
+
+
+def get_share_service(
+    shares: ShareRepository = Depends(get_share_repository),
+    items: ItemRepository = Depends(get_item_repository),
+    storage: ObjectStorage = Depends(get_storage),
+) -> ShareService:
+    return ShareService(shares, items, storage)
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     user_repo: UserRepository = Depends(get_user_repository),
@@ -82,3 +96,21 @@ async def get_current_user(
         raise unauthorized
 
     return user
+
+
+async def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    user_repo: UserRepository = Depends(get_user_repository),
+) -> UserInDB | None:
+    """Same as get_current_user, but permissive: used by the public share
+    endpoints, which must work with no token at all and only need to
+    know *who* the caller is when a restricted share checks their email.
+    An invalid/expired token is treated the same as no token, rather
+    than rejecting the request outright — the share resolution itself
+    is what decides access."""
+    if credentials is None:
+        return None
+    user_id = decode_access_token(credentials.credentials)
+    if user_id is None:
+        return None
+    return await user_repo.get_by_id(user_id)

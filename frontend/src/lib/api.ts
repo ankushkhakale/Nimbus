@@ -455,6 +455,83 @@ export const files = {
     request<void>(`/files/${itemId}`, { method: "DELETE", token }),
 };
 
+// --- shares ----------------------------------------------------------------
+
+export interface Share {
+  id: string;
+  item: Item;
+  token: string;
+  recipient_emails: string[];
+  expires_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+  is_active: boolean;
+}
+
+export interface ReceivedShare {
+  id: string;
+  item: Item;
+  token: string;
+  owner_email: string;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface PublicShare {
+  item: Item;
+  owner_name: string;
+  children: Item[];
+}
+
+export const shares = {
+  create: (
+    token: string,
+    itemId: string,
+    opts: { recipientEmails?: string[]; expiresInDays?: number } = {}
+  ) =>
+    request<Share>("/shares", {
+      method: "POST",
+      body: {
+        item_id: itemId,
+        recipient_emails: opts.recipientEmails ?? [],
+        expires_in_days: opts.expiresInDays ?? null,
+      },
+      token,
+    }),
+
+  listMine: (token: string) => request<{ shares: Share[] }>("/shares", { token }),
+
+  listReceived: (token: string) =>
+    request<{ shares: ReceivedShare[] }>("/shares/received", { token }),
+
+  revoke: (token: string, shareId: string) =>
+    request<void>(`/shares/${shareId}`, { method: "DELETE", token }),
+
+  /** Public — no token required, so `token` here is optional and, when
+   * present, is the VIEWER's own auth token (only relevant for a
+   * restricted share), not the share's own token (that's `shareToken`). */
+  open: (shareToken: string, viewerToken?: string | null) =>
+    request<PublicShare>(`/shares/public/${shareToken}`, { token: viewerToken }),
+
+  browse: (shareToken: string, parentId: string, viewerToken?: string | null) =>
+    request<Page<Item>>(
+      `/shares/public/${shareToken}/browse${qs({ parent_id: parentId })}`,
+      { token: viewerToken }
+    ),
+
+  downloadUrl: (shareToken: string, itemId: string, viewerToken?: string | null) =>
+    request<{ download_url: string; expires_in: number }>(
+      `/shares/public/${shareToken}/download-url${qs({ item_id: itemId })}`,
+      { token: viewerToken }
+    ),
+
+  thumbnailUrl: (shareToken: string, itemId: string, viewerToken?: string | null) =>
+    request<{ url: string; is_thumbnail: boolean; expires_in: number }>(
+      `/shares/public/${shareToken}/thumbnail-url${qs({ item_id: itemId })}`,
+      { token: viewerToken }
+    ),
+};
+
 /**
  * Upload bytes straight to S3 with a presigned URL.
  *

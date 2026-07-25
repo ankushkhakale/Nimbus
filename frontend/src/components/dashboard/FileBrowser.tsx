@@ -22,6 +22,7 @@ import {
   Pencil,
   RotateCcw,
   Search,
+  Share2,
   Star,
   Trash2,
   Upload,
@@ -41,6 +42,8 @@ import { OverflowMenu } from "@/components/ui/OverflowMenu";
 import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
 import { Lightbox } from "./Lightbox";
 import { MoveDialog } from "./MoveDialog";
+import { ShareDialog } from "./ShareDialog";
+import { SharedWithMePanel } from "./SharedWithMePanel";
 import { DuplicatesPanel } from "./DuplicatesPanel";
 import { MapView } from "./MapView";
 import { OnThisDay } from "./OnThisDay";
@@ -96,7 +99,8 @@ type DialogState =
   | { kind: "color"; item: Item }
   | { kind: "trash"; items: Item[] }
   | { kind: "deleteForever"; items: Item[] }
-  | { kind: "move"; items: Item[] };
+  | { kind: "move"; items: Item[] }
+  | { kind: "share"; item: Item };
 
 export function FileBrowser() {
   const b = useFiles();
@@ -113,6 +117,7 @@ export function FileBrowser() {
   const [viewMode, setViewModeState] = useState<ViewMode>(() => getViewMode());
   const [duplicatesOpen, setDuplicatesOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
+  const [sharedWithMeOpen, setSharedWithMeOpen] = useState(false);
   const setViewMode = (mode: ViewMode) => {
     setViewModeState(mode);
     persistViewMode(mode);
@@ -246,6 +251,7 @@ export function FileBrowser() {
         usage={usage}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        onOpenShared={() => setSharedWithMeOpen(true)}
       />
 
       <main
@@ -353,6 +359,7 @@ export function FileBrowser() {
                         onTrash={() => setDialog({ kind: "trash", items: [folder] })}
                         onToggleStar={() => void guard(() => b.toggleStarred(folder))}
                         onChangeColor={() => setDialog({ kind: "color", item: folder })}
+                        onShare={() => setDialog({ kind: "share", item: folder })}
                       />
                     ))}
                   </div>
@@ -384,6 +391,7 @@ export function FileBrowser() {
                           onTrash={() => setDialog({ kind: "trash", items: [file] })}
                           onRestore={() => void guard(() => b.restoreItems([file.id]))}
                           onToggleStar={() => void guard(() => b.toggleStarred(file))}
+                          onShare={() => setDialog({ kind: "share", item: file })}
                         />
                       ))}
                     </div>
@@ -529,6 +537,8 @@ export function FileBrowser() {
         />
       )}
 
+      {dialog.kind === "share" && <ShareDialog item={dialog.item} onClose={closeDialog} />}
+
       {lightboxIndex >= 0 && (
         <Lightbox
           items={lightboxList}
@@ -561,6 +571,8 @@ export function FileBrowser() {
           }}
         />
       )}
+
+      {sharedWithMeOpen && <SharedWithMePanel onClose={() => setSharedWithMeOpen(false)} />}
     </div>
   );
 }
@@ -647,12 +659,14 @@ function Sidebar({
   usage,
   open,
   onClose,
+  onOpenShared,
 }: {
   view: View;
   setView: (v: View) => void;
   usage: ReturnType<typeof useFiles>["usage"];
   open: boolean;
   onClose: () => void;
+  onOpenShared: () => void;
 }) {
   return (
     <>
@@ -724,6 +738,30 @@ function Sidebar({
               </button>
             );
           })}
+
+          <button
+            type="button"
+            onClick={onOpenShared}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "10px 12px",
+              borderRadius: "var(--radius-md)",
+              background: "transparent",
+              color: "var(--text-med)",
+              fontWeight: 500,
+              border: "none",
+              borderLeft: "3px solid transparent",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontSize: 14,
+              textAlign: "left",
+            }}
+          >
+            <Share2 size={16} />
+            Shared with me
+          </button>
         </nav>
 
         <StorageWidget usage={usage} />
@@ -1278,6 +1316,7 @@ function FolderCard({
   onTrash,
   onToggleStar,
   onChangeColor,
+  onShare,
 }: {
   item: Item;
   isSelected: boolean;
@@ -1288,6 +1327,7 @@ function FolderCard({
   onTrash: () => void;
   onToggleStar: () => void;
   onChangeColor: () => void;
+  onShare: () => void;
 }) {
   return (
     <div
@@ -1356,6 +1396,7 @@ function FolderCard({
             },
             { label: "Change color", icon: <Palette size={15} />, onClick: onChangeColor },
             { label: "Rename", icon: <Pencil size={15} />, onClick: onRename },
+            { label: "Share", icon: <Share2 size={15} />, onClick: onShare },
             {
               label: "Move to Trash",
               icon: <Trash2 size={15} />,
@@ -1380,6 +1421,7 @@ function FileRow({
   onTrash,
   onRestore,
   onToggleStar,
+  onShare,
 }: {
   item: Item;
   isSelected: boolean;
@@ -1391,6 +1433,7 @@ function FileRow({
   onTrash: () => void;
   onRestore: () => void;
   onToggleStar: () => void;
+  onShare: () => void;
 }) {
   return (
     <div
@@ -1471,6 +1514,7 @@ function FileRow({
                   onClick: onToggleStar,
                 },
                 { label: "Rename", icon: <Pencil size={15} />, onClick: onRename },
+                { label: "Share", icon: <Share2 size={15} />, onClick: onShare },
                 {
                   label: "Move to Trash",
                   icon: <Trash2 size={15} />,
