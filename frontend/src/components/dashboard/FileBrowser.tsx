@@ -1152,6 +1152,12 @@ function Toolbar({
         top: 0,
         background: "var(--canvas)",
         zIndex: 20,
+        // <main> is a column flex whose file list overflows, so it would
+        // otherwise SHRINK this header to its 64px min-height floor. On
+        // mobile the toolbar wraps to two rows (~110px); shrinking it back
+        // to 64px spilled the second row on top of the breadcrumb below.
+        // Pin the natural height so the wrapped rows stay contained.
+        flexShrink: 0,
       }}
     >
       <div
