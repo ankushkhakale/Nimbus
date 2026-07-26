@@ -208,32 +208,11 @@ readable tour of how things were built.
 
 ---
 
-## 🗺️ Roadmap
-
-- [ ] Connect-your-own-cloud: run Nimbus on your own AWS free credits (planned)
-- [ ] Native mobile app (the web UI is already responsive)
-- [ ] Offline read-only cache (service worker)
-- [ ] Password-reset email delivery
-- [ ] Deeper accessibility pass + full Hindi translation
-
----
-
-## 👤 About the maker
-
-Nimbus is designed, built, and maintained by **[Ankush Khakale](https://github.com/ankushkhakale)** —
-a student and developer who got tired of watching free cloud credits go to
-waste while good storage stayed locked behind subscriptions, and decided to
-build the alternative in the open.
-
-Built with ❤️ and a lot of late nights. If it's useful to you, a ⭐ on GitHub
-means a lot.
-
----
-
 ## 📄 License
 
 Licensed under the [Apache License 2.0](LICENSE).
 
+---
 <div align="center">
 <br/>
 <sub>Made with ❤️ by <b>Ankush Khakale</b> · Your files, your cloud.</sub>
