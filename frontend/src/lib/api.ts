@@ -37,6 +37,16 @@ function extractDetail(body: unknown, fallback: string): string {
   return fallback;
 }
 
+// The API runs on a Lambda that cold-starts, and clients are frequently on
+// flaky mobile networks. A single fetch that rejects the instant a packet
+// drops surfaces as "could not reach the server" even though a retry a
+// second later succeeds — so idempotent calls get a few bounded retries,
+// and every call gets a ceiling so a stalled socket fails predictably
+// instead of hanging forever (a cold Lambda + Mongo connect can take a
+// while, hence the generous timeout).
+const REQUEST_TIMEOUT_MS = 30_000;
+const NETWORK_RETRY_DELAYS_MS = [700, 1_800];
+
 async function request<T>(
   path: string,
   options: {
@@ -45,37 +55,62 @@ async function request<T>(
     token?: string | null;
     /** Send the refresh cookie. Only /auth/refresh and /auth/logout need it. */
     withCookies?: boolean;
+    /**
+     * Safe to auto-retry on a network-level failure (no response received)?
+     * Defaults to true for GET. Set explicitly for POSTs that are safe to
+     * repeat (e.g. login — repeating just re-authenticates). Never enable it
+     * for a call that creates or mutates server state on each hit.
+     */
+    idempotent?: boolean;
   } = {}
 ): Promise<T> {
   const { method = "GET", body, token, withCookies = false } = options;
+  const idempotent = options.idempotent ?? method === "GET";
 
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  let response: Response;
-  try {
-    response = await fetch(`${API}${path}`, {
-      method,
-      headers,
-      // Deliberately opt-in rather than global: sending the cookie on
-      // every file request would attach a long-lived credential to
-      // hundreds of calls that have no use for it.
-      credentials: withCookies ? "include" : "same-origin",
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-  } catch {
-    // fetch only rejects on network-level failure, never on 4xx/5xx. This
-    // covers several distinct causes (DNS, TLS, CORS, an actually-dead
-    // connection) that all look identical to JavaScript, so the message
-    // only claims what navigator.onLine can actually confirm.
-    throw new ApiError(
-      0,
-      navigator.onLine
-        ? "Could not reach the server. It may be temporarily down, or a network in between is blocking the request."
-        : "You appear to be offline. Check your connection and try again."
-    );
+  const maxAttempts = idempotent ? NETWORK_RETRY_DELAYS_MS.length + 1 : 1;
+  let response: Response | undefined;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const timer = new AbortController();
+    const timeout = setTimeout(() => timer.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      response = await fetch(`${API}${path}`, {
+        method,
+        headers,
+        // Deliberately opt-in rather than global: sending the cookie on
+        // every file request would attach a long-lived credential to
+        // hundreds of calls that have no use for it.
+        credentials: withCookies ? "include" : "same-origin",
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: timer.signal,
+      });
+      break;
+    } catch {
+      // fetch only rejects on network-level failure (or our timeout abort),
+      // never on 4xx/5xx. This covers several distinct causes (DNS, TLS,
+      // CORS, a dead connection, a timed-out cold start) that all look
+      // identical to JavaScript. Retry idempotent calls before giving up.
+      if (attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, NETWORK_RETRY_DELAYS_MS[attempt]));
+        continue;
+      }
+      throw new ApiError(
+        0,
+        navigator.onLine
+          ? "Could not reach the server. It may be temporarily down, or a network in between is blocking the request."
+          : "You appear to be offline. Check your connection and try again."
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
   }
+
+  // Unreachable in practice: the loop either assigns `response` or throws.
+  if (!response) throw new ApiError(0, "Request failed.");
 
   if (response.status === 204) return undefined as T;
 
@@ -195,6 +230,10 @@ export const auth = {
       method: "POST",
       body: { email, password },
       withCookies: true,
+      // Safe to repeat: a second login just re-authenticates. This is the
+      // call that most often eats a Lambda cold start, so let it ride out
+      // a dropped first attempt instead of erroring the user out.
+      idempotent: true,
     }),
 
   /**
