@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  ApiError,
   Item,
   ItemType,
   Page,
@@ -22,7 +23,6 @@ import {
   uploadToS3,
 } from "./api";
 import { useAuth } from "./auth-context";
-import { notify } from "./notify";
 import { getDefaultView, getFolderSort, setFolderSort } from "./preferences";
 
 export type View = "files" | "photos" | "videos" | "starred" | "recent" | "trash";
@@ -85,6 +85,10 @@ const PART_SIZE_BYTES = 16 * 1024 * 1024;
 // network starts queuing them anyway.
 const PART_CONCURRENCY = 4;
 const PART_MAX_ATTEMPTS = 3;
+// A whole single-PUT (small file) re-sent from scratch when the connection
+// drops mid-upload. Kept small because each retry re-uploads the entire
+// file; the point is to survive a transient blip, not a dead network.
+const SINGLE_PUT_MAX_ATTEMPTS = 3;
 
 async function uploadPartWithRetry(
   url: string,
@@ -415,6 +419,7 @@ export function useFiles() {
           // A single PUT can't resume mid-stream, so pausing aborts it and
           // resuming re-PUTs the whole file (the presigned URL stays valid
           // for repeated PUTs to the same key). Loop until it lands.
+          let putAttempt = 0;
           for (;;) {
             await waitWhilePaused();
             if (ctrl.cancelled) throw new UploadAbortedError();
@@ -423,6 +428,20 @@ export function useFiles() {
               break;
             } catch (err) {
               if (err instanceof UploadAbortedError && !ctrl.cancelled) continue; // paused → retry
+              // A dropped connection mid-PUT (status 0) is common on slow
+              // mobile links — retry the whole PUT a few times with backoff
+              // before surfacing it, the same resilience the multipart parts
+              // already get. Real HTTP errors (4xx/5xx) are not retried.
+              if (
+                err instanceof ApiError &&
+                err.status === 0 &&
+                putAttempt < SINGLE_PUT_MAX_ATTEMPTS - 1
+              ) {
+                putAttempt++;
+                setProgress(0);
+                await new Promise((r) => setTimeout(r, 800 * putAttempt));
+                continue;
+              }
               throw err;
             }
           }
@@ -480,7 +499,6 @@ export function useFiles() {
         }
 
         setUploads((u) => u.map((p) => (p.key === key ? { ...p, progress: 1, status: "done" } : p)));
-        notify("Upload complete", file.name);
       } catch (err) {
         if (ctrl.cancelled || err instanceof UploadAbortedError) {
           // A cancel is a user action, not a failure — drop the row silently.
