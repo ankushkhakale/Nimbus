@@ -84,10 +84,8 @@ const DIRECTORY_INPUT_PROPS = {
   directory: "true",
 } as unknown as React.InputHTMLAttributes<HTMLInputElement>;
 
-// The upload <label>s target these inputs by id (label htmlFor). Stable,
-// document-unique ids so the label and input can live in different parts
-// of the tree.
-const UPLOAD_INPUT_ID = "nimbus-upload-input";
+// The desktop-only "Upload folder" <label> targets its input by id (the
+// main Upload button uses an inline overlay input instead).
 const UPLOAD_FOLDER_INPUT_ID = "nimbus-upload-folder-input";
 
 // A <label> opens its input on click for free, but isn't keyboard-operable
@@ -210,7 +208,6 @@ export function FileBrowser() {
     persistViewMode(mode);
   };
 
-  const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const sentinel = useRef<HTMLDivElement>(null);
@@ -513,6 +510,7 @@ export function FileBrowser() {
           browser={b}
           searchRef={searchInput}
           onNewFolder={() => setDialog({ kind: "newFolder" })}
+          onUploadFiles={(files) => void guard(() => b.upload(files))}
           onOpenSidebar={() => setSidebarOpen(true)}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
@@ -520,26 +518,10 @@ export function FileBrowser() {
           onOpenMap={() => setMapOpen(true)}
         />
 
-        {/* The Upload buttons are <label htmlFor> pointing at these inputs,
-            NOT scripted `.click()` calls. A label opens the native picker
-            from a genuine user gesture, which every mobile browser honours
-            even for a hidden input — a programmatic click on a hidden input
-            is exactly what mobile Safari/Chrome drop on the floor, and was
-            why "tap Upload, pick a file, nothing happens" persisted. The
-            inputs stay visually-hidden (not display:none) so focus/label
-            activation still reaches them. */}
-        <input
-          id={UPLOAD_INPUT_ID}
-          ref={fileInput}
-          type="file"
-          multiple
-          className="visually-hidden-input"
-          onChange={(e) => {
-            if (e.target.files?.length) void guard(() => b.upload(e.target.files!));
-            e.target.value = "";
-          }}
-        />
-
+        {/* The main Upload button carries its own overlay <input> (see
+            Toolbar) — the most mobile-reliable trigger. Only the folder
+            input lives here, activated by its desktop-only <label>; the
+            webkitdirectory picker is desktop-only anyway. */}
         <input
           id={UPLOAD_FOLDER_INPUT_ID}
           ref={folderInput}
@@ -1137,6 +1119,7 @@ function Toolbar({
   browser,
   searchRef,
   onNewFolder,
+  onUploadFiles,
   onOpenSidebar,
   viewMode,
   onViewModeChange,
@@ -1146,6 +1129,7 @@ function Toolbar({
   browser: ReturnType<typeof useFiles>;
   searchRef: React.RefObject<HTMLInputElement | null>;
   onNewFolder: () => void;
+  onUploadFiles: (files: FileList) => void;
   onOpenSidebar: () => void;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
@@ -1351,20 +1335,38 @@ function Toolbar({
               <FolderUp size={16} />
               <span className="btn-label">{t("toolbar.uploadFolder")}</span>
             </label>
-            {/* A real <label>, not a button with a scripted .click(): the
-                native picker must open from a genuine user gesture or mobile
-                browsers silently ignore it. */}
-            <label
-              htmlFor={UPLOAD_INPUT_ID}
-              className="btn-primary"
-              aria-label="Upload"
-              tabIndex={0}
-              onKeyDown={activateFileInputOnKey}
-              style={{ padding: "0 14px", cursor: "pointer" }}
-            >
+            {/* Invisible-overlay file input: the real <input type=file>
+                sits full-size and transparent DIRECTLY on top of the button,
+                so a tap on "Upload" IS a tap on the input. No label
+                forwarding, no scripted .click(), no 1px-clipped input — all
+                three of which mobile browsers were dropping on the floor,
+                leaving uploads dead on phones with no error. This is the one
+                pattern every mobile browser handles because the change event
+                comes from a direct interaction with the input itself. */}
+            <div className="btn-primary" style={{ position: "relative", padding: "0 14px" }}>
               <Upload size={16} />
               <span className="btn-label">{t("toolbar.upload")}</span>
-            </label>
+              <input
+                type="file"
+                multiple
+                aria-label="Upload"
+                onChange={(e) => {
+                  if (e.target.files?.length) onUploadFiles(e.target.files);
+                  e.target.value = "";
+                }}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  width: "100%",
+                  height: "100%",
+                  opacity: 0,
+                  cursor: "pointer",
+                  // 16px+ dodges iOS's focus-zoom; 0 would also work but this
+                  // is defensive against any browser that measures the input.
+                  fontSize: 16,
+                }}
+              />
+            </div>
           </>
         )}
 
