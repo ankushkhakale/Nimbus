@@ -2,8 +2,11 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertCircle,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Clock,
   Cloud,
   Columns2,
@@ -33,6 +36,7 @@ import {
   Trash2,
   Upload,
   Video,
+  WifiOff,
   X,
 } from "lucide-react";
 
@@ -1675,6 +1679,12 @@ function SelectionBar({
   );
 }
 
+/**
+ * Google-Drive-style upload tray: a single compact, collapsible panel
+ * pinned to the bottom-right, instead of full-width cards stacked into the
+ * file area. One header line summarises progress; the body is a tidy,
+ * scrollable list with a status glyph and controls per row.
+ */
 function UploadList({
   uploads,
   onDismiss,
@@ -1689,80 +1699,220 @@ function UploadList({
   onCancel: (key: string) => void;
 }) {
   const { t } = useTranslation();
+  const [collapsed, setCollapsed] = useState(false);
+
+  const activeCount = uploads.filter(
+    (u) => u.status === "uploading" || u.status === "paused" || u.status === "waiting"
+  ).length;
+  const doneCount = uploads.filter((u) => u.status === "done").length;
+  const errorCount = uploads.filter((u) => u.status === "error").length;
+
+  let title: string;
+  if (activeCount > 0) {
+    title = `Uploading ${activeCount} item${activeCount > 1 ? "s" : ""}…`;
+  } else if (errorCount > 0 && doneCount > 0) {
+    title = `${doneCount} done · ${errorCount} failed`;
+  } else if (errorCount > 0) {
+    title = `${errorCount} upload${errorCount > 1 ? "s" : ""} failed`;
+  } else {
+    title = `${doneCount} upload${doneCount === 1 ? "" : "s"} complete`;
+  }
+
+  // The X clears everything that's finished (done or failed); anything still
+  // uploading keeps going. When the list empties the panel unmounts itself.
+  const clearFinished = () =>
+    uploads.forEach((u) => {
+      if (u.status === "done" || u.status === "error") onDismiss(u.key);
+    });
+
   return (
-    <div style={{ marginBottom: 20, display: "flex", flexDirection: "column", gap: 8 }}>
-      {uploads.map((u) => {
-        const active = u.status === "uploading" || u.status === "paused";
-        return (
+    <div
+      className="upload-panel"
+      style={{
+        position: "fixed",
+        bottom: 20,
+        right: 20,
+        width: "min(360px, calc(100vw - 32px))",
+        zIndex: 50,
+        background: "var(--surface-card)",
+        border: "1px solid var(--hairline-strong)",
+        borderRadius: "var(--radius-lg)",
+        boxShadow: "0 8px 28px rgba(0,0,0,0.35)",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "12px 14px",
+          background: "var(--surface-elevated)",
+          borderBottom: collapsed ? "none" : "1px solid var(--hairline)",
+        }}
+      >
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontSize: 14,
+            fontWeight: 600,
+            color: "var(--text-high)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {title}
+        </span>
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          aria-label={collapsed ? "Expand" : "Collapse"}
+          title={collapsed ? "Expand" : "Collapse"}
+          style={iconBtnStyle}
+        >
+          {collapsed ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </button>
+        <button
+          type="button"
+          onClick={clearFinished}
+          aria-label={t("common.dismiss")}
+          title={activeCount > 0 ? "Clear finished" : t("common.dismiss")}
+          style={iconBtnStyle}
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      {!collapsed && (
+        <div style={{ maxHeight: 320, overflowY: "auto" }}>
+          {uploads.map((u) => (
+            <UploadRow
+              key={u.key}
+              u={u}
+              t={t}
+              onDismiss={onDismiss}
+              onPause={onPause}
+              onResume={onResume}
+              onCancel={onCancel}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UploadRow({
+  u,
+  t,
+  onDismiss,
+  onPause,
+  onResume,
+  onCancel,
+}: {
+  u: ReturnType<typeof useFiles>["uploads"][number];
+  t: (key: string) => string;
+  onDismiss: (key: string) => void;
+  onPause: (key: string) => void;
+  onResume: (key: string) => void;
+  onCancel: (key: string) => void;
+}) {
+  const active = u.status === "uploading" || u.status === "paused" || u.status === "waiting";
+  const showBar = active && u.progress !== null;
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px" }}>
+      <span style={{ display: "flex", flexShrink: 0 }}>
+        {u.status === "uploading" && (
+          <Loader2 size={16} style={{ animation: "spin 1s linear infinite", color: "var(--text-med)" }} />
+        )}
+        {u.status === "waiting" && <WifiOff size={16} style={{ color: "var(--warning)" }} />}
+        {u.status === "paused" && <Pause size={16} style={{ color: "var(--text-med)" }} />}
+        {u.status === "done" && <CheckCircle2 size={16} style={{ color: "var(--success)" }} />}
+        {u.status === "error" && <AlertCircle size={16} style={{ color: "var(--error)" }} />}
+      </span>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 13,
+            color: "var(--text-high)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {u.name}
+        </div>
+        {u.status === "waiting" && (
+          <div style={{ fontSize: 11, color: "var(--warning)" }}>Waiting for connection…</div>
+        )}
+        {u.status === "paused" && (
+          <div style={{ fontSize: 11, color: "var(--text-med)" }}>Paused</div>
+        )}
+        {u.status === "uploading" && u.progress !== null && (
+          <div style={{ fontSize: 11, color: "var(--text-med)" }}>{Math.round(u.progress * 100)}%</div>
+        )}
+        {u.status === "error" && (
           <div
-            key={u.key}
-            className="card"
-            style={{ padding: "10px 14px", fontSize: 14 }}
+            title={u.error}
+            style={{
+              fontSize: 11,
+              color: "var(--error)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              {u.status === "uploading" && (
-                <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
-              )}
-              {u.status === "paused" && <Pause size={14} style={{ color: "var(--text-med)" }} />}
-              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
-                {u.name}
-              </span>
-              <span style={{ color: u.status === "error" ? "var(--error)" : "var(--text-med)" }}>
-                {u.status === "uploading" &&
-                  (u.progress === null ? "Uploading…" : `${Math.round(u.progress * 100)}%`)}
-                {u.status === "paused" &&
-                  `Paused${u.progress ? ` · ${Math.round(u.progress * 100)}%` : ""}`}
-                {u.status === "done" && "Done"}
-                {u.status === "error" && (u.error ?? "Failed")}
-              </span>
-              {/* Pause / resume toggle while the upload is running. */}
-              {active && (
-                <button
-                  type="button"
-                  onClick={() => (u.status === "paused" ? onResume(u.key) : onPause(u.key))}
-                  aria-label={u.status === "paused" ? t("upload.resume") : t("upload.pause")}
-                  title={u.status === "paused" ? t("upload.resume") : t("upload.pause")}
-                  style={iconBtnStyle}
-                >
-                  {u.status === "paused" ? <Play size={14} /> : <Pause size={14} />}
-                </button>
-              )}
-              {/* Cancel an in-flight upload, or dismiss a finished/failed row. */}
-              {(active || u.status === "error") && (
-                <button
-                  type="button"
-                  onClick={() => (active ? onCancel(u.key) : onDismiss(u.key))}
-                  aria-label={active ? t("upload.cancel") : t("common.dismiss")}
-                  title={active ? t("upload.cancel") : t("common.dismiss")}
-                  style={iconBtnStyle}
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-            {active && u.progress !== null && (
-              <div
-                style={{
-                  marginTop: 8,
-                  height: 3,
-                  borderRadius: 2,
-                  background: "var(--hairline-strong)",
-                  overflow: "hidden",
-                }}
-              >
-                <div
-                  style={{
-                    width: `${u.progress * 100}%`,
-                    height: "100%",
-                    background: u.status === "paused" ? "var(--text-med)" : "var(--primary)",
-                    transition: "width 150ms linear",
-                  }}
-                />
-              </div>
-            )}
+            {u.error ?? "Failed"}
           </div>
-        );
-      })}
+        )}
+        {showBar && (
+          <div
+            style={{
+              marginTop: 5,
+              height: 3,
+              borderRadius: 2,
+              background: "var(--hairline-strong)",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                width: `${(u.progress ?? 0) * 100}%`,
+                height: "100%",
+                background: u.status === "uploading" ? "var(--primary)" : "var(--text-med)",
+                transition: "width 150ms linear",
+              }}
+            />
+          </div>
+        )}
+      </div>
+
+      {active && (
+        <button
+          type="button"
+          onClick={() => (u.status === "uploading" ? onPause(u.key) : onResume(u.key))}
+          aria-label={u.status === "uploading" ? t("upload.pause") : t("upload.resume")}
+          title={u.status === "uploading" ? t("upload.pause") : t("upload.resume")}
+          style={iconBtnStyle}
+        >
+          {u.status === "uploading" ? <Pause size={15} /> : <Play size={15} />}
+        </button>
+      )}
+      {(active || u.status === "error") && (
+        <button
+          type="button"
+          onClick={() => (active ? onCancel(u.key) : onDismiss(u.key))}
+          aria-label={active ? t("upload.cancel") : t("common.dismiss")}
+          title={active ? t("upload.cancel") : t("common.dismiss")}
+          style={iconBtnStyle}
+        >
+          <X size={15} />
+        </button>
+      )}
     </div>
   );
 }
@@ -1774,6 +1924,7 @@ const iconBtnStyle: React.CSSProperties = {
   cursor: "pointer",
   display: "flex",
   padding: 2,
+  flexShrink: 0,
 };
 
 function FolderCard({
