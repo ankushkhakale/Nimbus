@@ -84,6 +84,22 @@ const DIRECTORY_INPUT_PROPS = {
   directory: "true",
 } as unknown as React.InputHTMLAttributes<HTMLInputElement>;
 
+// The upload <label>s target these inputs by id (label htmlFor). Stable,
+// document-unique ids so the label and input can live in different parts
+// of the tree.
+const UPLOAD_INPUT_ID = "nimbus-upload-input";
+const UPLOAD_FOLDER_INPUT_ID = "nimbus-upload-folder-input";
+
+// A <label> opens its input on click for free, but isn't keyboard-operable
+// on its own. This restores Enter/Space for keyboard users without giving
+// up the label's mobile-reliable click behaviour.
+function activateFileInputOnKey(e: React.KeyboardEvent<HTMLLabelElement>) {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    document.getElementById(e.currentTarget.htmlFor)?.click();
+  }
+}
+
 const NAV: { key: View; i18nKey: string; icon: React.ReactNode }[] = [
   { key: "files", i18nKey: "nav.myCloud", icon: <FolderIcon size={16} /> },
   { key: "photos", i18nKey: "nav.photos", icon: <ImageIcon size={16} /> },
@@ -497,8 +513,6 @@ export function FileBrowser() {
           browser={b}
           searchRef={searchInput}
           onNewFolder={() => setDialog({ kind: "newFolder" })}
-          onUploadClick={() => fileInput.current?.click()}
-          onUploadFolderClick={() => folderInput.current?.click()}
           onOpenSidebar={() => setSidebarOpen(true)}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
@@ -506,10 +520,16 @@ export function FileBrowser() {
           onOpenMap={() => setMapOpen(true)}
         />
 
-        {/* Visually hidden rather than `hidden`/display:none: iOS Safari
-            refuses to open a display:none file input from a programmatic
-            .click(), which silently broke uploads on iPhones. */}
+        {/* The Upload buttons are <label htmlFor> pointing at these inputs,
+            NOT scripted `.click()` calls. A label opens the native picker
+            from a genuine user gesture, which every mobile browser honours
+            even for a hidden input — a programmatic click on a hidden input
+            is exactly what mobile Safari/Chrome drop on the floor, and was
+            why "tap Upload, pick a file, nothing happens" persisted. The
+            inputs stay visually-hidden (not display:none) so focus/label
+            activation still reaches them. */}
         <input
+          id={UPLOAD_INPUT_ID}
           ref={fileInput}
           type="file"
           multiple
@@ -521,6 +541,7 @@ export function FileBrowser() {
         />
 
         <input
+          id={UPLOAD_FOLDER_INPUT_ID}
           ref={folderInput}
           type="file"
           multiple
@@ -1116,8 +1137,6 @@ function Toolbar({
   browser,
   searchRef,
   onNewFolder,
-  onUploadClick,
-  onUploadFolderClick,
   onOpenSidebar,
   viewMode,
   onViewModeChange,
@@ -1127,8 +1146,6 @@ function Toolbar({
   browser: ReturnType<typeof useFiles>;
   searchRef: React.RefObject<HTMLInputElement | null>;
   onNewFolder: () => void;
-  onUploadClick: () => void;
-  onUploadFolderClick: () => void;
   onOpenSidebar: () => void;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
@@ -1323,26 +1340,31 @@ function Toolbar({
                 mobile browsers don't support — hidden on touch/narrow
                 screens (see .desktop-only in globals.css) so it can't sit
                 on top of the real Upload button and swallow taps. */}
-            <button
-              type="button"
-              onClick={onUploadFolderClick}
+            <label
+              htmlFor={UPLOAD_FOLDER_INPUT_ID}
               className="btn-secondary desktop-only"
               aria-label="Upload folder"
-              style={{ padding: "0 12px" }}
+              tabIndex={0}
+              onKeyDown={activateFileInputOnKey}
+              style={{ padding: "0 12px", cursor: "pointer" }}
             >
               <FolderUp size={16} />
               <span className="btn-label">{t("toolbar.uploadFolder")}</span>
-            </button>
-            <button
-              type="button"
-              onClick={onUploadClick}
+            </label>
+            {/* A real <label>, not a button with a scripted .click(): the
+                native picker must open from a genuine user gesture or mobile
+                browsers silently ignore it. */}
+            <label
+              htmlFor={UPLOAD_INPUT_ID}
               className="btn-primary"
               aria-label="Upload"
-              style={{ padding: "0 14px" }}
+              tabIndex={0}
+              onKeyDown={activateFileInputOnKey}
+              style={{ padding: "0 14px", cursor: "pointer" }}
             >
               <Upload size={16} />
               <span className="btn-label">{t("toolbar.upload")}</span>
-            </button>
+            </label>
           </>
         )}
 
