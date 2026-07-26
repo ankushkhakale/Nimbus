@@ -537,7 +537,12 @@ export function useFiles() {
 
   const upload = useCallback(
     async (fileList: FileList | File[]) => {
-      if (!token) return;
+      // Surface, don't swallow: a silent return here is exactly what made
+      // "I picked files and nothing happened" impossible to diagnose. If we
+      // somehow have files but no session, tell the user instead.
+      if (!token) {
+        throw new Error("Your session isn't ready yet — reload the page, then try uploading again.");
+      }
       const chosen = Array.from(fileList);
       const parentId = current.id;
 
