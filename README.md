@@ -1,46 +1,121 @@
+<div align="center">
+
 # ☁️ Nimbus
 
-**Own your cloud. Own your data.**
+### Free cloud storage for your files & photos — no subscription, no catch.
 
-Nimbus is a self-hosted, open-source alternative to Google Drive + Google
-Photos. It is a privacy-focused place to store, browse, and back up your
-files and photos — built on a serverless, cloud-native architecture that
-runs comfortably within free-tier and pay-per-use pricing.
+A clean, fast, open-source alternative to Google Drive + Google Photos.
+**Just create an account and start uploading.**
 
-> **Status:** the backend is **live and deployed** on AWS. This is a working
-> file manager backed by real uploads and downloads — not a UI mockup.
+[![Use Nimbus free](https://img.shields.io/badge/Use_Nimbus-free-faff69?style=for-the-badge&labelColor=0a0a0a)](https://nimbus-ochre.vercel.app)
+&nbsp;
+[![Star on GitHub](https://img.shields.io/github/stars/ankushkhakale/Nimbus?style=for-the-badge&labelColor=0a0a0a&color=888888)](https://github.com/ankushkhakale/Nimbus)
+&nbsp;
+![License](https://img.shields.io/badge/License-Apache_2.0-888888?style=for-the-badge&labelColor=0a0a0a)
 
----
+<br/>
 
-## ✨ Highlights
+<img src="docs/screenshots/landing-hero.png" alt="Nimbus — your files, your photos, free storage" width="100%" />
 
-- **Drive-style file manager** — folders, upload, download, preview, rename,
-  move, trash/restore, and permanent delete.
-- **Photos-style library** — a date-oriented photo grid with a lightbox.
-- **Automatic thumbnails** — every uploaded image is thumbnailed server-side,
-  end to end, without blocking the upload.
-- **Direct-to-storage transfers** — the browser uploads and downloads file
-  bytes straight to object storage via presigned URLs; the API never proxies
-  file data.
-- **Full-text search, recent files, and storage usage** reporting.
-- **Multi-user auth** — per-user isolated storage with JWT + bcrypt.
-- **Resumable Google Takeout migration** for bulk-importing existing data.
+</div>
 
 ---
 
-## 🏗️ Architecture
+## What is Nimbus?
 
-Nimbus is fully serverless. The API is a single AWS Lambda (FastAPI behind
-[Mangum](https://github.com/jordaneremieff/mangum)) fronted by an API Gateway
-HTTP API. Because Lambda is stateless, both the database (MongoDB Atlas) and
-file storage (S3) live outside it. Crucially, **file bytes never flow through
-the API** — the browser talks to S3 directly using short-lived presigned URLs,
-which keeps compute cost near zero regardless of file size.
+Nimbus is a hosted, **free-to-use** cloud drive: a place to keep your
+documents, photos, and videos, browse them in a polished web app, and get
+them back on any device. It looks and feels like Drive and Photos — folders,
+a photo timeline, sharing, search — without the subscription and without a
+big company mining your library.
+
+It's also **fully open source**. The whole thing runs on a serverless,
+pay-nothing-while-idle architecture, so anyone can read the code, learn from
+it, or contribute. But you don't need to know any of that to use it —
+**just [sign up](https://nimbus-ochre.vercel.app) and upload.**
+
+<div align="center">
+<img src="docs/screenshots/showcase-photos.png" alt="Photos library in Nimbus" width="100%" />
+<sub><i>Your photo library — thumbnailed automatically, browsable in a fast grid, with uploads running in the background.</i></sub>
+</div>
+
+---
+
+## ✨ Features
+
+**Files & folders**
+- Upload files or whole folders, download, preview, rename, move, and organize
+- Soft **Trash** with restore — nothing is gone until you say so
+- **Star** important items and give folders **colors**
+- List and grid views, sortable, with infinite scroll
+
+**Photos & media**
+- A **Photos** timeline with a full-screen lightbox (zoom, slideshow, cast to TV)
+- In-browser **photo editing** (crop, rotate, brightness, contrast)
+- **Automatic thumbnails** for every image, generated server-side
+- **Duplicate detection** and photo stacks; **map view** from photo GPS data
+
+**Uploads that don't give up**
+- Big files upload in resilient **multipart** chunks
+- A **Google-Drive-style upload tray** with per-file pause / resume / cancel
+- Drops on flaky networks **auto-pause and resume** when you're back online
+- **Resume** interrupted uploads, and bulk-import a **Google Takeout** export
+
+**Sharing & collaboration**
+- **Share links** — public, expiring, or to named recipients — for files and folders
+- A **Shared with me** view
+- **File versioning** with bounded history
+
+**Find & track**
+- Full **search** with filters and saved searches; **Recent** view
+- An **Activity** feed and **login-activity** log
+- **Storage usage** breakdown by type
+
+**Your account, your way**
+- Email/password or **Google / GitHub** sign-in
+- **Session management** — see and revoke signed-in devices
+- **Light / dark theme**, **English / हिन्दी**, and accessibility-minded UI
+
+> Every feature listed above is **built and running today** — not a roadmap.
+
+---
+
+## 🖼️ A look around
+
+| | |
+|:--:|:--:|
+| <img src="docs/screenshots/my-cloud.png" width="420"/><br/><sub><b>My Cloud</b> — files, folders, and storage at a glance</sub> | <img src="docs/screenshots/activity.png" width="420"/><br/><sub><b>Activity</b> — a timeline of everything you've done</sub> |
+| <img src="docs/screenshots/shared-with-me.png" width="420"/><br/><sub><b>Shared with me</b> — folders others sent your way</sub> | <img src="docs/screenshots/trash.png" width="420"/><br/><sub><b>Trash</b> — soft-deleted, restorable until purged</sub> |
+| <img src="docs/screenshots/settings.png" width="420"/><br/><sub><b>Settings</b> — theme, language, and preferences</sub> | |
+
+---
+
+## 🧭 How you use it
+
+1. **Create an account** at [nimbus-ochre.vercel.app](https://nimbus-ochre.vercel.app) — email/password, or Google / GitHub.
+2. **Upload** files, folders, or drag-and-drop right onto the page. Big files and slow connections are handled for you.
+3. **Organize** with folders, stars, and colors; browse photos in the timeline.
+4. **Share** a link when you need to — public, expiring, or to specific people.
+5. **Find** anything with search, Recent, and the Activity feed.
+
+That's it. There's nothing to install and nothing to configure.
+
+---
+
+## 🏗️ Architecture (for the curious)
+
+Nimbus is **fully serverless** and costs nothing while idle. The API is a
+single AWS Lambda (FastAPI behind [Mangum](https://github.com/jordaneremieff/mangum))
+fronted by an API Gateway HTTP API. Because Lambda is stateless, the database
+(MongoDB Atlas) and file storage (S3) live outside it. Crucially, **file bytes
+never flow through the API** — the browser uploads and downloads straight to S3
+using short-lived presigned URLs, so compute cost stays near zero no matter how
+large the files are.
 
 ```mermaid
 flowchart TD
     subgraph Client
-        B["Browser<br/>Next.js static export"]
+        B["Browser<br/>Next.js web app"]
     end
 
     subgraph AWS["AWS · ap-south-1"]
@@ -50,213 +125,116 @@ flowchart TD
         T["Lambda: nimbus-thumbnailer<br/>Pillow"]
     end
 
-    DB[("MongoDB Atlas M0<br/>metadata")]
+    DB[("MongoDB Atlas<br/>metadata")]
 
     B -- "JSON / auth (JWT)" --> GW --> L
-    L <-- "users, items,<br/>metadata" --> DB
+    L <-- "users, items, metadata" --> DB
     L -- "issue presigned URLs" --> B
-    B -- "upload / download bytes<br/>(presigned)" --> S3
+    B -- "upload / download bytes (presigned)" --> S3
     S3 -- "ObjectCreated event" --> T
     T -- "512px JPEG → thumbnails/" --> S3
 ```
 
-**Request flow**
+**What happens when you upload a photo**
 
-1. The browser authenticates against API Gateway and receives a JWT.
-2. To upload, it asks the API for a presigned `PUT` URL, then sends the bytes
-   **directly to S3** — the Lambda only records metadata in MongoDB.
-3. An S3 `ObjectCreated` event triggers the thumbnailer Lambda, which writes a
-   512px JPEG under `thumbnails/`.
-4. To view or download, the browser requests a presigned `GET` URL and again
-   fetches bytes straight from S3.
+1. The browser authenticates and holds a short-lived JWT (with a refresh cookie so a reload keeps you signed in).
+2. It asks the API for a presigned `PUT` URL and sends the bytes **directly to S3** — the Lambda only records metadata.
+3. An S3 `ObjectCreated` event triggers the thumbnailer Lambda, which writes a 512px JPEG under `thumbnails/`.
+4. To view or download, the browser requests a presigned `GET` URL and fetches the bytes straight from S3.
 
 ---
 
-## 🧰 Tech Stack
+## 🧰 Tech stack
 
 | Layer | Technology |
 |---|---|
-| **Frontend** | Next.js 16 (React 19), Tailwind CSS v4, Lucide icons — static export (`output: "export"`), client-rendered |
-| **Backend** | FastAPI (Python 3.13) + Mangum, running on AWS Lambda |
+| **Frontend** | Next.js 16 (React 19), static export, client-rendered, Lucide icons |
+| **Backend** | FastAPI (Python 3.13) + Mangum on AWS Lambda |
 | **API edge** | AWS API Gateway (HTTP API) |
-| **Database** | MongoDB Atlas M0 (free tier), via Motor (async) |
+| **Database** | MongoDB Atlas via Motor (async) |
 | **File storage** | AWS S3 — private bucket, SSE-S3, presigned direct upload/download |
 | **Thumbnails** | S3 event → Lambda (Pillow) |
-| **Auth** | JWT (HS256, 24h) + bcrypt |
+| **Auth** | JWT (HS256) + bcrypt, httpOnly refresh cookie, Google/GitHub OAuth |
 | **Infrastructure** | CloudFormation (`infra/nimbus-backend.yaml`) |
-| **CI/CD** | GitHub Actions — CI on every PR; deploy on merge to `main` via GitHub OIDC (no stored AWS keys) |
+| **CI/CD** | GitHub Actions — CI on every PR; deploy on merge via GitHub OIDC (no stored AWS keys) |
 
 ---
 
-## 📡 API Reference
+## 📡 API reference
 
 Base path: `/api/v1`. All `/files` routes require a `Bearer` JWT.
 
-**Auth** — `/auth`
+**Auth** — `/auth`: `register`, `login`, `refresh`, `logout`, `me`, OAuth
+callbacks, session management, login-activity.
 
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/register` | Create an account |
-| `POST` | `/login` | Obtain a JWT |
-| `GET` | `/me` | Current user |
-| `POST` | `/forgot-password` | Request password reset |
+**Files** — `/files`: paginated listing, `photos`, `search`, `recent`,
+`trash`, `usage`; `folders`, `upload-url` (+ multipart), `{id}/complete`,
+`{id}/download-url` / `preview-url` / `thumbnail-url`; `move` / `trash` /
+`restore` / `delete-permanently`; rename (`PATCH /{id}`); sharing, versions,
+and activity.
 
-**Files** — `/files`
+**Health** — `GET /health`.
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `` | Paginated listing |
-| `GET` | `/photos` | Photo library (date-grid) |
-| `GET` | `/search` | Search items |
-| `GET` | `/recent` | Recently touched items |
-| `GET` | `/trash` | Trashed items |
-| `GET` | `/usage`, `/usage/detail` | Storage usage |
-| `POST` | `/folders` | Create a folder |
-| `POST` | `/upload-url` | Presigned upload URL |
-| `POST` | `/{id}/complete` | Finalize an upload |
-| `GET` | `/{id}/download-url` | Presigned download URL |
-| `GET` | `/{id}/preview-url` | Presigned preview URL |
-| `GET` | `/{id}/thumbnail-url`, `POST /thumbnail-urls` | Thumbnail URL(s) |
-| `POST` | `/move`, `/trash`, `/restore`, `/delete-permanently` | Bulk operations |
-| `PATCH` | `/{id}` | Rename |
-| `DELETE` | `/{id}` | Soft-delete (trash) |
-
-**Health** — `GET /health`
-
-> **Note:** deletion is soft — `DELETE` moves items to trash; only
-> `/delete-permanently` (and the scheduled purge) remove objects from S3.
+> Deletion is soft: `DELETE` moves items to Trash; only `/delete-permanently`
+> (and the scheduled purge) remove objects from storage.
 
 ---
 
-## 📂 Repository Layout
+## 📂 Repository layout
 
 ```
 Nimbus/
-├── backend/            # FastAPI app (Lambda handler, endpoints, services, repos)
-│   ├── app/
-│   │   ├── api/        # routers + endpoints (auth, files, health)
-│   │   ├── services/   # auth & file business logic
-│   │   ├── repositories/  # MongoDB data access
-│   │   ├── storage/    # S3 abstraction + key layout
-│   │   ├── jobs/       # scheduled purge
-│   │   └── lambda_handler.py
-│   └── tests/          # backend test suite
-├── frontend/           # Next.js 16 app (landing, auth, dashboard)
-├── thumbnailer/        # S3-triggered thumbnail Lambda (Pillow)
-├── infra/              # CloudFormation template (nimbus-backend.yaml)
-├── scripts/            # Lambda packaging, thumbnail backfill, Takeout migration
-├── docs/               # architecture notes
-├── requirements.md     # goals, cost model, and design rationale
-└── template.yaml       # for `sam build` only (not used for deploy)
+├── backend/        # FastAPI app — endpoints, services, repositories, storage, jobs
+├── frontend/       # Next.js web app — landing, auth, dashboard
+├── thumbnailer/    # S3-triggered thumbnail Lambda (Pillow)
+├── infra/          # CloudFormation template
+├── scripts/        # Lambda packaging, thumbnail backfill, Takeout migration
+├── docs/           # architecture notes + screenshots
+└── requirements.md # goals, cost model, and design rationale
 ```
 
 ---
 
-## 🚀 Getting Started
+## 🤝 Contributing
 
-### Prerequisites
+Nimbus is open source and contributions are welcome. The best way to start is
+to **read the codebase** — it's organized by layer (see above) and every
+feature shipped as its own reviewed pull request, so the git history is a
+readable tour of how things were built.
 
-- Python 3.13+
-- Node.js 20+
-- Docker & Docker Compose (for local MongoDB)
-- An AWS account (for the deployed backend + storage)
-
-### 1. Configure environment
-
-```bash
-cp .env.example .env
-cp frontend/.env.example frontend/.env.local
-# fill in values — .env is gitignored, never commit real secrets
-# generate a JWT secret with: openssl rand -hex 32
-```
-
-### 2. Run the backend locally
-
-The bundled `docker-compose.yml` starts the FastAPI backend plus a local
-MongoDB:
-
-```bash
-docker compose up -d --build
-# API → http://localhost:8000
-```
-
-### 3. Run the frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-# UI → http://localhost:3000
-```
-
-Set `NEXT_PUBLIC_API_BASE_URL` in `frontend/.env.local` to point at your API
-(local or deployed).
-
-### 4. Deploy to AWS
-
-Infrastructure is plain CloudFormation. Package and deploy the Lambda:
-
-```bash
-# build a slim Lambda zip (boto3/botocore are provided by the runtime)
-scripts/package_lambda.sh
-
-# deploy / update the stack
-aws cloudformation deploy \
-  --template-file infra/nimbus-backend.yaml \
-  --stack-name nimbus-backend \
-  --region ap-south-1 \
-  --capabilities CAPABILITY_NAMED_IAM
-```
-
-Read the live API URL from the stack rather than hardcoding it:
-
-```bash
-aws cloudformation describe-stacks --stack-name nimbus-backend \
-  --region ap-south-1 \
-  --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' --output text
-```
-
-On merge to `main`, GitHub Actions deploys automatically via GitHub OIDC — no
-AWS credentials are stored in the repo.
-
----
-
-## 📦 Migrating from Google Takeout
-
-`scripts/migrate_takeout.py` bulk-imports an existing Google Takeout export.
-It is **resumable** and **sidecar-aware** (it reads Takeout's `.json` metadata
-alongside each media file), so a large migration can be interrupted and
-restarted safely.
+- 🐛 Found a bug or have an idea? [Open an issue](https://github.com/ankushkhakale/Nimbus/issues).
+- 🔧 Want to build something? Fork, branch, and open a PR — CI runs backend tests plus frontend type-checks and a production build on every PR.
+- ⭐ Like the project? **[Star it on GitHub](https://github.com/ankushkhakale/Nimbus)** — it genuinely helps.
 
 ---
 
 ## 🗺️ Roadmap
 
-- [ ] Deploy the frontend (Next.js static export) to a public origin
-- [ ] Scheduled trash purge + stale-upload cleanup to reclaim storage
-- [ ] Persistent sessions (refresh tokens) so a reload keeps you signed in
-- [ ] Password-reset email delivery (currently a stub)
-- [ ] AI-powered semantic search & tagging
-- [ ] Cross-device sync and PWA support
+- [ ] Connect-your-own-cloud: run Nimbus on your own AWS free credits (planned)
+- [ ] Native mobile app (the web UI is already responsive)
+- [ ] Offline read-only cache (service worker)
+- [ ] Password-reset email delivery
+- [ ] Deeper accessibility pass + full Hindi translation
 
 ---
 
-## 🧪 Development
+## 👤 About the maker
 
-```bash
-# backend tests
-cd backend && pytest
+Nimbus is designed, built, and maintained by **[Ankush Khakale](https://github.com/ankushkhakale)** —
+a student and developer who got tired of watching free cloud credits go to
+waste while good storage stayed locked behind subscriptions, and decided to
+build the alternative in the open.
 
-# frontend checks
-cd frontend && npm run lint && npm run build
-```
+Built with ❤️ and a lot of late nights. If it's useful to you, a ⭐ on GitHub
+means a lot.
 
 ---
 
 ## 📄 License
 
-See [LICENSE](LICENSE).
+Licensed under the [Apache License 2.0](LICENSE).
 
----
-
-*Own your cloud. Own your data.*
+<div align="center">
+<br/>
+<sub>Made with ❤️ by <b>Ankush Khakale</b> · Your files, your cloud.</sub>
+</div>
