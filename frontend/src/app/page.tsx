@@ -3,24 +3,27 @@ import {
   ArrowRight,
   Boxes,
   Cloud,
-  FolderTree,
+  Heart,
   Image as ImageIcon,
   Lock,
+  Search,
+  Share2,
   ShieldCheck,
+  Star,
   Upload,
 } from "lucide-react";
 
 /*
  * Landing page.
  *
- * A server component — nothing here needs client-side state. The previous
- * version was "use client" only to run a mouse-tracking glow.
+ * A server component — nothing here needs client-side state.
  *
- * Copy rule: every claim on this page is something the code actually
- * does. The earlier version advertised zero-knowledge encryption (it is
- * SSE-S3, so AWS holds the keys), semantic AI search (cut in
- * requirements §6), collaboration (not built), and five fictional
- * customer logos.
+ * Copy rule: every claim on this page is something the product actually
+ * does. Nimbus is a free, hosted, open-source Drive/Photos alternative —
+ * you sign up and use it; there is nothing to install. Do not re-add the
+ * old "deploy it into your own AWS account" framing (that path is planned,
+ * not shipped), and do not list already-shipped features (sharing,
+ * versioning, search) as "not built".
  */
 
 const GITHUB_URL = "https://github.com/ankushkhakale/Nimbus";
@@ -35,7 +38,8 @@ export default function LandingPage() {
         <StatBand />
         <HowItWorks />
         <WhatItDoes />
-        <NotYetBuilt />
+        <AboutMaker />
+        <Roadmap />
         <CtaBand />
       </main>
 
@@ -88,6 +92,7 @@ function SiteHeader() {
         >
           <a href="#how" style={{ color: "var(--text-med)" }}>How it works</a>
           <a href="#features" style={{ color: "var(--text-med)" }}>Features</a>
+          <a href="#maker" style={{ color: "var(--text-med)" }}>About</a>
           <a href={GITHUB_URL} target="_blank" rel="noreferrer" style={{ color: "var(--text-med)" }}>
             GitHub
           </a>
@@ -125,7 +130,7 @@ function Hero() {
         <div className="animate-fade-in-up">
           <span className="badge" style={{ marginBottom: 24 }}>
             <ShieldCheck size={14} color="var(--primary)" />
-            Free to run · Apache&nbsp;2.0
+            Free to use · Open source
           </span>
 
           <h1
@@ -140,7 +145,7 @@ function Hero() {
             <br />
             Your photos.
             <br />
-            <span style={{ color: "var(--primary)" }}>Free storage, your cloud.</span>
+            <span style={{ color: "var(--primary)" }}>Free cloud storage.</span>
           </h1>
 
           <p
@@ -152,17 +157,16 @@ function Hero() {
               marginBottom: 32,
             }}
           >
-            Nimbus is a self-hosted replacement for Drive and Photos. Deploy it
-            into your own AWS account and it runs on AWS&rsquo;s free tier by
-            design — compute, the API, and the database cost nothing at
-            personal scale, and the free credits AWS hands new accounts
-            comfortably cover years of storage on top. No subscription, no
-            third party holding your data.
+            Nimbus is a clean, fast alternative to Google Drive and Photos —
+            free to use, with nothing to install. Create an account, upload your
+            files and photos, and get them back on any device. No subscription,
+            no credit card, no company mining your library. And it&rsquo;s fully
+            open source.
           </p>
 
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <Link href="/auth/register" className="btn-primary btn-lg" style={{ height: 48, padding: "0 26px", fontSize: 15 }}>
-              Get started <ArrowRight size={17} />
+              Get started free <ArrowRight size={17} />
             </Link>
             <a
               href={GITHUB_URL}
@@ -171,80 +175,37 @@ function Hero() {
               className="btn-secondary"
               style={{ height: 48, padding: "0 26px", fontSize: 15 }}
             >
-              Read the source
+              <Star size={16} /> Star on GitHub
             </a>
           </div>
         </div>
 
-        <TerminalCard />
+        <AppShot />
       </div>
     </section>
   );
 }
 
-/**
- * Real output from scripts/migrate_takeout.py, not an invented mockup —
- * the migration is the thing Nimbus was built to do, so it is what the
- * hero should show.
- */
-function TerminalCard() {
+/** A real screenshot of the app, not an invented mockup. */
+function AppShot() {
   return (
-    <div className="code-window animate-fade-in-up delay-200">
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "12px 16px",
-          borderBottom: "1px solid var(--hairline)",
-        }}
-      >
-        <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#3a3a3a" }} />
-        <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#3a3a3a" }} />
-        <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#3a3a3a" }} />
-        <span
-          style={{
-            marginLeft: 8,
-            fontSize: 12,
-            color: "var(--text-low)",
-            fontFamily: "var(--font-mono)",
-          }}
-        >
-          migrate_takeout.py
-        </span>
-      </div>
-
-      <pre>
-        <span className="tok-comment"># Move a Google Takeout export into your own bucket</span>
-        {"\n"}
-        <span className="tok-cmd">$ python</span> scripts/migrate_takeout.py{" "}
-        <span className="tok-dim">\</span>
-        {"\n    "}
-        <span className="tok-key">--email</span>{" "}
-        <span className="tok-str">you@example.com</span>{" "}
-        <span className="tok-dim">\</span>
-        {"\n    "}
-        <span className="tok-key">--source</span> <span className="tok-str">~/Takeout</span>
-        {"\n\n"}
-        <span className="tok-dim">Found 1,284 files to consider</span>
-        {"\n"}
-        Drive/Documents/notes.txt{"          "}
-        <span className="tok-str">uploaded</span>
-        {"\n"}
-        Photos/Trip to Goa/IMG_001.jpg{"    "}
-        <span className="tok-str">uploaded</span>{" "}
-        <span className="tok-dim">taken 2023-06-17</span>
-        {"\n"}
-        Photos/2023/IMG_002.jpg{"          "}
-        <span className="tok-str">uploaded</span>{" "}
-        <span className="tok-dim">taken 2023-01-01</span>
-        {"\n"}
-        <span className="tok-dim">…</span>
-        {"\n\n"}
-        <span className="tok-comment">Done. uploaded=1284 skipped=0 failed=0</span>
-        {"\n"}
-        <span className="tok-comment">Capture times restored from sidecars.</span>
-      </pre>
+    <div
+      className="animate-fade-in-up delay-200"
+      style={{
+        borderRadius: "var(--radius-lg)",
+        border: "1px solid var(--hairline-strong)",
+        overflow: "hidden",
+        boxShadow: "0 24px 60px rgba(0,0,0,0.4)",
+      }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/nimbus-app.png"
+        alt="The Nimbus dashboard — files, folders, and storage"
+        width={1200}
+        height={640}
+        style={{ display: "block", width: "100%", height: "auto" }}
+      />
     </div>
   );
 }
@@ -252,10 +213,10 @@ function TerminalCard() {
 /* ------------------------------------------------------------------ */
 
 const STATS = [
-  { value: "₹0", label: "subscription — no account with us, because there is no us" },
-  { value: "₹0", label: "for compute, the API, and the database — all free-tier" },
-  { value: "~5 yrs", label: "of 90GB storage from a typical AWS signup credit" },
-  { value: "0", label: "servers to patch or keep running" },
+  { value: "₹0", label: "to sign up and use — no subscription, no card" },
+  { value: "Open", label: "source under Apache 2.0 — read every line" },
+  { value: "AES-256", label: "encryption at rest; private by default" },
+  { value: "0", label: "ads or trackers mining your library" },
 ];
 
 function StatBand() {
@@ -287,16 +248,16 @@ function StatBand() {
 
 const STEPS = [
   {
-    title: "Deploy it to your account",
-    body: "One CloudFormation stack: a Lambda, an HTTP API, and an S3 bucket that blocks all public access. Nothing runs — or bills — while idle.",
+    title: "Create your account",
+    body: "Sign up in seconds with email and a password, or continue with Google or GitHub. Every file and folder is scoped to you — accounts never see each other.",
   },
   {
-    title: "Sign in",
-    body: "Passwords are bcrypt-hashed and sessions are JWTs. Every file and folder query is scoped to your user id, so accounts cannot see each other.",
+    title: "Upload anything",
+    body: "Drag files or whole folders right onto the page. Big files upload in resilient chunks, and a dropped connection pauses and resumes on its own.",
   },
   {
-    title: "Move your files in",
-    body: "Upload from the browser, or bulk-import a Google Takeout export. Either way the bytes go straight to S3 over a presigned URL.",
+    title: "Organize, share, find",
+    body: "Folders, stars, and colors; a photo timeline; share links when you need them; and search, Recent, and an activity feed to find anything fast.",
   },
 ];
 
@@ -312,7 +273,7 @@ function HowItWorks() {
           marginBottom: 48,
         }}
       >
-        Three steps, and the bytes never pass through a server you have to run.
+        Three steps, and there&rsquo;s nothing to install.
       </h2>
 
       <div
@@ -350,33 +311,33 @@ function HowItWorks() {
 const FEATURES = [
   {
     icon: Upload,
-    title: "Direct-to-S3 transfers",
-    body: "The API issues a presigned URL and steps out of the way. File contents never pass through it, so uploads are not capped by a function's memory or timeout.",
+    title: "Uploads that finish",
+    body: "Files or whole folders, in resilient multipart chunks. A Drive-style tray lets you pause, resume, and cancel — and network drops auto-resume when you're back online.",
   },
   {
     icon: ImageIcon,
-    title: "Thumbnails, automatically",
-    body: "Writing an object fires an S3 event that runs a Lambda and stores a 512px JPEG. A 370 KB photo becomes a 23 KB thumbnail.",
+    title: "Photos, done right",
+    body: "A date-ordered photo timeline with a full-screen lightbox — zoom, slideshow, cast to a TV — plus in-browser editing and automatic thumbnails.",
   },
   {
-    icon: FolderTree,
-    title: "Photos by real date",
-    body: "A Takeout export's file timestamps are the export date. Nimbus reads the JSON sidecars instead, so the grid shows when photos were actually taken.",
+    icon: Share2,
+    title: "Share on your terms",
+    body: "Public, expiring, or named-recipient links for any file or folder. Send what you want, to whom you want, for as long as you want.",
   },
   {
-    icon: Boxes,
-    title: "Takeout migration",
-    body: "A resumable bulk importer that preserves Drive's folder structure and Photos albums. Interrupt it and re-run; it skips what already landed.",
+    icon: Search,
+    title: "Find it fast",
+    body: "Search with filters and saved searches, a Recent view, duplicate detection, and an activity feed that remembers everything you've done.",
   },
   {
     icon: Lock,
-    title: "Per-user isolation",
-    body: "Queries are scoped by JWT and objects are prefixed with users/{id}/. Path traversal is rejected before a key is ever built.",
+    title: "Private by default",
+    body: "Your files are isolated per account, encrypted at rest with AES-256, and reachable only through short-lived signed URLs. No ads, no tracking.",
   },
   {
-    icon: ShieldCheck,
-    title: "Encrypted at rest",
-    body: "SSE-S3 with AES-256, and the bucket blocks public access on all four settings. Objects are reachable only through short-lived signed URLs.",
+    icon: Boxes,
+    title: "Bring your old life",
+    body: "Import a Google Takeout export — resumable, and it restores real photo capture dates from Takeout's metadata so your timeline is right.",
   },
 ];
 
@@ -425,21 +386,83 @@ function WhatItDoes() {
 
 /* ------------------------------------------------------------------ */
 
-const NOT_BUILT = [
-  "Share links and multi-user collaboration",
-  "A native mobile app — the web UI is responsive, but that's all today",
-  "File versioning",
-  "Full-text or semantic search across file contents",
+function AboutMaker() {
+  return (
+    <section id="maker" className="container section" style={{ paddingTop: 0 }}>
+      <div
+        className="card"
+        style={{
+          padding: "clamp(32px, 5vw, 56px)",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+          gap: 40,
+          alignItems: "center",
+        }}
+      >
+        <div>
+          <p className="eyebrow" style={{ marginBottom: 16 }}>About</p>
+          <h2 style={{ fontSize: "clamp(26px, 3.5vw, 34px)", letterSpacing: "-0.03em", marginBottom: 18 }}>
+            Built with <Heart size={26} color="var(--primary)" fill="var(--primary)" style={{ verticalAlign: "-3px" }} /> by Ankush Khakale
+          </h2>
+          <p style={{ fontSize: 16, lineHeight: 1.65, color: "var(--text-body)", marginBottom: 16 }}>
+            I&rsquo;m a student and developer who got tired of watching free
+            cloud credits go to waste while good storage stayed locked behind
+            subscriptions. So I built the alternative — in the open, one
+            reviewed pull request at a time.
+          </p>
+          <p style={{ fontSize: 16, lineHeight: 1.65, color: "var(--text-body)", marginBottom: 24 }}>
+            Nimbus is the result: a real, working Drive and Photos replacement
+            that anyone can use for free and anyone can read, learn from, or
+            contribute to. If it&rsquo;s useful to you, a star means a lot.
+          </p>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <a
+              href="https://github.com/ankushkhakale"
+              target="_blank"
+              rel="noreferrer"
+              className="btn-primary"
+              style={{ height: 44, padding: "0 22px", fontSize: 14 }}
+            >
+              <Star size={16} /> @ankushkhakale
+            </a>
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="btn-secondary"
+              style={{ height: 44, padding: "0 22px", fontSize: 14 }}
+            >
+              Star the project
+            </a>
+          </div>
+        </div>
+
+        <div
+          aria-hidden
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: 180,
+          }}
+        >
+          <Cloud size={120} color="var(--primary)" strokeWidth={1.4} style={{ opacity: 0.9 }} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+const ROADMAP = [
+  "Connect your own cloud — run on your own AWS free credits (planned)",
+  "A native mobile app — the web UI is already responsive",
+  "Offline read-only access (service worker cache)",
+  "Password-reset email delivery",
 ];
 
-/**
- * Framed as a roadmap rather than a list of gaps, but the substance is
- * unchanged: only things genuinely not built appear here. Trash/restore
- * shipped a while back and was removed from this list for that reason —
- * stating gaps plainly, accurately, is worth more than padding the
- * feature list or leaving stale claims in place.
- */
-function NotYetBuilt() {
+function Roadmap() {
   return (
     <section className="container section" style={{ paddingTop: 0 }}>
       <div className="card" style={{ padding: 40 }}>
@@ -455,7 +478,7 @@ function NotYetBuilt() {
             gap: "12px 32px",
           }}
         >
-          {NOT_BUILT.map((item) => (
+          {ROADMAP.map((item) => (
             <li
               key={item}
               style={{
@@ -499,11 +522,11 @@ function CtaBand() {
               marginBottom: 12,
             }}
           >
-            Run it yourself.
+            Start in seconds.
           </h2>
           <p style={{ fontSize: 16, color: "rgba(10,10,10,0.75)", maxWidth: 460 }}>
-            Clone the repo, deploy the stack, point it at your bucket. No
-            account with us, because there is no us.
+            Create a free account and move your files and photos into a cloud
+            that doesn&rsquo;t charge you or mine your data.
           </p>
         </div>
 
@@ -519,7 +542,7 @@ function CtaBand() {
               color: "var(--primary)",
             }}
           >
-            Get started <ArrowRight size={17} />
+            Get started free <ArrowRight size={17} />
           </Link>
           <a
             href={GITHUB_URL}
@@ -563,6 +586,10 @@ function SiteFooter() {
           <span style={{ fontWeight: 700, color: "var(--text-high)" }}>Nimbus</span>
           <span style={{ color: "var(--text-low)", fontSize: 14 }}>· Apache 2.0</span>
         </div>
+
+        <span style={{ color: "var(--text-med)", fontSize: 14, display: "flex", alignItems: "center", gap: 6 }}>
+          Made with <Heart size={13} color="var(--primary)" fill="var(--primary)" /> by Ankush Khakale
+        </span>
 
         <div style={{ display: "flex", gap: 24, fontSize: 14, color: "var(--text-med)" }}>
           <a href="#how">How it works</a>
