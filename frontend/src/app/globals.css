@@ -574,6 +574,40 @@ html[data-reduced-motion="true"] *::after {
   }
 }
 
+/* A file input that stays clickable (so a button's programmatic .click()
+   opens the native picker) but takes no layout space. Deliberately NOT
+   display:none — iOS Safari won't open a display:none input from a
+   scripted click, which silently broke uploads on iPhones. */
+.visually-hidden-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Controls that only make sense with a mouse/keyboard (e.g. the
+   webkitdirectory folder picker, which mobile browsers don't support).
+   Hidden on touch-sized screens so they can't crowd or overlay the
+   controls that do work there. */
+@media (max-width: 768px) {
+  .desktop-only {
+    display: none !important;
+  }
+
+  /* Mobile toolbar: give the search its own full-width row, and let the
+     action buttons wrap onto the next row, right-aligned, instead of
+     overflowing and overlapping each other. */
+  .toolbar-search-group {
+    flex: 1 1 100% !important;
+    max-width: none !important;
+  }
+}
+
 /* Icon-only toolbar buttons once there isn't room for their labels. The
    button keeps its aria-label, so it stays accessible without the text. */
 @media (max-width: 620px) {

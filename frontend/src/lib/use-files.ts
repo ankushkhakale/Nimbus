@@ -15,6 +15,7 @@ import {
   ItemType,
   Page,
   SortKey,
+  UploadAbortedError,
   UsageDetail,
   files as filesApi,
   uploadPartToS3,
@@ -48,19 +49,37 @@ export interface UploadProgress {
   name: string;
   /** 0-1. Stays null until the browser reports its first progress event. */
   progress: number | null;
-  status: "uploading" | "done" | "error";
+  status: "uploading" | "paused" | "done" | "error";
   error?: string;
+}
+
+// Per-upload control handle, kept in a ref so pause/resume/cancel can
+// reach a running upload without re-rendering. `controller` is swapped
+// for a fresh one on resume, since aborting to pause consumes it.
+interface UploadControl {
+  paused: boolean;
+  cancelled: boolean;
+  controller: AbortController;
+  waiters: (() => void)[];
+  // Set once a multipart upload is in flight, so cancel can free the
+  // server-side parts rather than leaking them.
+  multipart?: { itemId: string; uploadId: string };
 }
 
 const ROOT: Crumb = { id: null, name: "My Cloud" };
 const PAGE_SIZE = 60;
 
 // Files at or above this size go through multipart upload instead of a
-// single PUT, so a mid-upload network hiccup only costs one part's
-// worth of retrying rather than the whole file. 8MB comfortably clears
-// S3's 5MB-per-part minimum.
-const MULTIPART_THRESHOLD_BYTES = 8 * 1024 * 1024;
-const PART_SIZE_BYTES = 8 * 1024 * 1024;
+// single PUT, so a mid-upload network hiccup only costs one part's worth
+// of retrying rather than the whole file.
+//
+// Deliberately high (100MB) so the common case — phone photos and short
+// videos — takes the simple, battle-tested single-PUT path. A single PUT
+// works up to S3's 5GB object limit; multipart is reserved for genuinely
+// large files where per-chunk retry actually earns its complexity (and
+// its dependency on the bucket exposing the per-part ETag via CORS).
+const MULTIPART_THRESHOLD_BYTES = 100 * 1024 * 1024;
+const PART_SIZE_BYTES = 16 * 1024 * 1024;
 // How many parts to have in flight at once — enough to use the
 // connection well without opening so many requests that the browser or
 // network starts queuing them anyway.
@@ -70,13 +89,17 @@ const PART_MAX_ATTEMPTS = 3;
 async function uploadPartWithRetry(
   url: string,
   blob: Blob,
-  onProgress: (fraction: number) => void
+  onProgress: (fraction: number) => void,
+  // Read lazily each attempt: resume swaps in a fresh controller.
+  getSignal?: () => AbortSignal
 ): Promise<string> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= PART_MAX_ATTEMPTS; attempt++) {
     try {
-      return await uploadPartToS3(url, blob, onProgress);
+      return await uploadPartToS3(url, blob, onProgress, getSignal?.());
     } catch (err) {
+      // A pause/cancel abort must surface at once — never burn retries on it.
+      if (err instanceof UploadAbortedError) throw err;
       lastError = err;
       if (attempt < PART_MAX_ATTEMPTS) {
         await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
@@ -105,6 +128,7 @@ export function useFiles() {
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [uploads, setUploads] = useState<UploadProgress[]>([]);
+  const uploadControls = useRef<Map<string, UploadControl>>(new Map());
 
   const current = trail[trail.length - 1];
 
@@ -355,9 +379,28 @@ export function useFiles() {
   const uploadOne = useCallback(
     async (file: File, parentId: string | null, key: string) => {
       if (!token) return;
+      const ctrl: UploadControl = {
+        paused: false,
+        cancelled: false,
+        controller: new AbortController(),
+        waiters: [],
+      };
+      uploadControls.current.set(key, ctrl);
       setUploads((u) => [...u, { key, name: file.name, progress: 0, status: "uploading" }]);
+
       const setProgress = (fraction: number) =>
         setUploads((u) => u.map((p) => (p.key === key ? { ...p, progress: fraction } : p)));
+      const setStatus = (status: UploadProgress["status"]) =>
+        setUploads((u) => u.map((p) => (p.key === key ? { ...p, status } : p)));
+
+      // Block here while paused; return promptly if cancelled.
+      const waitWhilePaused = async () => {
+        while (ctrl.paused && !ctrl.cancelled) {
+          setStatus("paused");
+          await new Promise<void>((resolve) => ctrl.waiters.push(resolve));
+        }
+        if (!ctrl.cancelled) setStatus("uploading");
+      };
 
       try {
         const contentType = file.type || "application/octet-stream";
@@ -369,9 +412,20 @@ export function useFiles() {
             parentId,
             contentType
           );
-          // Straight to S3 — the bytes never pass through the API.
-          await uploadToS3(upload_url, file, contentType, setProgress);
-          // Only now does the server confirm the object and record size.
+          // A single PUT can't resume mid-stream, so pausing aborts it and
+          // resuming re-PUTs the whole file (the presigned URL stays valid
+          // for repeated PUTs to the same key). Loop until it lands.
+          for (;;) {
+            await waitWhilePaused();
+            if (ctrl.cancelled) throw new UploadAbortedError();
+            try {
+              await uploadToS3(upload_url, file, contentType, setProgress, ctrl.controller.signal);
+              break;
+            } catch (err) {
+              if (err instanceof UploadAbortedError && !ctrl.cancelled) continue; // paused → retry
+              throw err;
+            }
+          }
           await filesApi.completeUpload(token, item.id);
         } else {
           const partCount = Math.ceil(file.size / PART_SIZE_BYTES);
@@ -382,6 +436,7 @@ export function useFiles() {
             contentType,
             partCount
           );
+          ctrl.multipart = { itemId: item.id, uploadId: upload_id };
 
           const partFractions = new Array<number>(partCount).fill(0);
           const reportOverall = () =>
@@ -392,13 +447,22 @@ export function useFiles() {
             let nextPart = 0;
             const worker = async () => {
               while (nextPart < partCount) {
+                // Multipart pauses cleanly between parts — already-uploaded
+                // parts are kept, so resume genuinely continues.
+                await waitWhilePaused();
+                if (ctrl.cancelled) throw new UploadAbortedError();
                 const i = nextPart++;
                 const start = i * PART_SIZE_BYTES;
                 const blob = file.slice(start, Math.min(start + PART_SIZE_BYTES, file.size));
-                const etag = await uploadPartWithRetry(part_urls[i], blob, (fraction) => {
-                  partFractions[i] = fraction;
-                  reportOverall();
-                });
+                const etag = await uploadPartWithRetry(
+                  part_urls[i],
+                  blob,
+                  (fraction) => {
+                    partFractions[i] = fraction;
+                    reportOverall();
+                  },
+                  () => ctrl.controller.signal
+                );
                 partFractions[i] = 1;
                 reportOverall();
                 parts[i] = { part_number: i + 1, etag };
@@ -409,6 +473,7 @@ export function useFiles() {
             );
             await filesApi.completeMultipartUpload(token, item.id, upload_id, parts);
           } catch (err) {
+            // Cancelled OR failed: free the server-side parts either way.
             await filesApi.abortMultipartUpload(token, item.id, upload_id).catch(() => {});
             throw err;
           }
@@ -417,17 +482,58 @@ export function useFiles() {
         setUploads((u) => u.map((p) => (p.key === key ? { ...p, progress: 1, status: "done" } : p)));
         notify("Upload complete", file.name);
       } catch (err) {
-        setUploads((u) =>
-          u.map((p) =>
-            p.key === key
-              ? { ...p, status: "error", error: err instanceof Error ? err.message : "Upload failed" }
-              : p
-          )
-        );
+        if (ctrl.cancelled || err instanceof UploadAbortedError) {
+          // A cancel is a user action, not a failure — drop the row silently.
+          setUploads((u) => u.filter((p) => p.key !== key));
+        } else {
+          setUploads((u) =>
+            u.map((p) =>
+              p.key === key
+                ? { ...p, status: "error", error: err instanceof Error ? err.message : "Upload failed" }
+                : p
+            )
+          );
+        }
+      } finally {
+        uploadControls.current.delete(key);
       }
     },
     [token]
   );
+
+  const pauseUpload = useCallback((key: string) => {
+    const ctrl = uploadControls.current.get(key);
+    if (!ctrl || ctrl.paused || ctrl.cancelled) return;
+    ctrl.paused = true;
+    // Abort the in-flight request(s); the upload loop will wait for resume.
+    ctrl.controller.abort();
+  }, []);
+
+  const resumeUpload = useCallback((key: string) => {
+    const ctrl = uploadControls.current.get(key);
+    if (!ctrl || !ctrl.paused) return;
+    ctrl.paused = false;
+    // Fresh controller — the old one was consumed by the pause abort.
+    ctrl.controller = new AbortController();
+    const waiters = ctrl.waiters;
+    ctrl.waiters = [];
+    waiters.forEach((w) => w());
+  }, []);
+
+  const cancelUpload = useCallback((key: string) => {
+    const ctrl = uploadControls.current.get(key);
+    if (!ctrl) {
+      // Already finished/errored — just clear its row.
+      setUploads((u) => u.filter((p) => p.key !== key));
+      return;
+    }
+    ctrl.cancelled = true;
+    ctrl.controller.abort();
+    // Release a paused loop so it can observe the cancel and unwind.
+    const waiters = ctrl.waiters;
+    ctrl.waiters = [];
+    waiters.forEach((w) => w());
+  }, []);
 
   const upload = useCallback(
     async (fileList: FileList | File[]) => {
@@ -541,5 +647,8 @@ export function useFiles() {
     uploadFolder,
     uploads,
     dismissUpload,
+    pauseUpload,
+    resumeUpload,
+    cancelUpload,
   };
 }

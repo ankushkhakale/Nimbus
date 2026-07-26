@@ -23,7 +23,9 @@ import {
   Map as MapIcon,
   Music,
   Palette,
+  Pause,
   Pencil,
+  Play,
   RotateCcw,
   Search,
   Share2,
@@ -504,11 +506,14 @@ export function FileBrowser() {
           onOpenMap={() => setMapOpen(true)}
         />
 
+        {/* Visually hidden rather than `hidden`/display:none: iOS Safari
+            refuses to open a display:none file input from a programmatic
+            .click(), which silently broke uploads on iPhones. */}
         <input
           ref={fileInput}
           type="file"
           multiple
-          hidden
+          className="visually-hidden-input"
           onChange={(e) => {
             if (e.target.files?.length) void guard(() => b.upload(e.target.files!));
             e.target.value = "";
@@ -519,7 +524,7 @@ export function FileBrowser() {
           ref={folderInput}
           type="file"
           multiple
-          hidden
+          className="visually-hidden-input"
           {...DIRECTORY_INPUT_PROPS}
           onChange={(e) => {
             const files = e.target.files;
@@ -553,7 +558,13 @@ export function FileBrowser() {
           <FormError message={actionError ?? error} />
 
           {uploads.length > 0 && (
-            <UploadList uploads={uploads} onDismiss={b.dismissUpload} />
+            <UploadList
+              uploads={uploads}
+              onDismiss={b.dismissUpload}
+              onPause={b.pauseUpload}
+              onResume={b.resumeUpload}
+              onCancel={b.cancelUpload}
+            />
           )}
 
           {!loading && items.length > 0 && (
@@ -1143,7 +1154,10 @@ function Toolbar({
         zIndex: 20,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 200 }}>
+      <div
+        className="toolbar-search-group"
+        style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 200 }}
+      >
         <button
           type="button"
           className="btn-secondary sidebar-toggle"
@@ -1202,7 +1216,15 @@ function Toolbar({
         />
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          flexWrap: "wrap",
+          justifyContent: "flex-end",
+        }}
+      >
         {browser.view === "photos" && !browser.query && (
           <button type="button" className="btn-secondary" onClick={onOpenMap}>
             <MapIcon size={15} />
@@ -1291,10 +1313,14 @@ function Toolbar({
               <FolderPlus size={16} />
               <span className="btn-label">{t("toolbar.newFolder")}</span>
             </button>
+            {/* Folder upload relies on the webkitdirectory picker, which
+                mobile browsers don't support — hidden on touch/narrow
+                screens (see .desktop-only in globals.css) so it can't sit
+                on top of the real Upload button and swallow taps. */}
             <button
               type="button"
               onClick={onUploadFolderClick}
-              className="btn-secondary"
+              className="btn-secondary desktop-only"
               aria-label="Upload folder"
               style={{ padding: "0 12px" }}
             >
@@ -1622,67 +1648,103 @@ function SelectionBar({
 function UploadList({
   uploads,
   onDismiss,
+  onPause,
+  onResume,
+  onCancel,
 }: {
   uploads: ReturnType<typeof useFiles>["uploads"];
   onDismiss: (key: string) => void;
+  onPause: (key: string) => void;
+  onResume: (key: string) => void;
+  onCancel: (key: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div style={{ marginBottom: 20, display: "flex", flexDirection: "column", gap: 8 }}>
-      {uploads.map((u) => (
-        <div
-          key={u.key}
-          className="card"
-          style={{ padding: "10px 14px", fontSize: 14 }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {u.status === "uploading" && (
-              <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
-            )}
-            <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
-              {u.name}
-            </span>
-            <span style={{ color: u.status === "error" ? "var(--error)" : "var(--text-med)" }}>
-              {u.status === "uploading" &&
-                (u.progress === null ? "Uploading…" : `${Math.round(u.progress * 100)}%`)}
-              {u.status === "done" && "Done"}
-              {u.status === "error" && (u.error ?? "Failed")}
-            </span>
-            {u.status === "error" && (
-              <button
-                type="button"
-                onClick={() => onDismiss(u.key)}
-                aria-label="Dismiss"
-                style={{ background: "transparent", border: "none", color: "var(--text-med)", cursor: "pointer", display: "flex" }}
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-          {u.status === "uploading" && u.progress !== null && (
-            <div
-              style={{
-                marginTop: 8,
-                height: 3,
-                borderRadius: 2,
-                background: "var(--hairline-strong)",
-                overflow: "hidden",
-              }}
-            >
+      {uploads.map((u) => {
+        const active = u.status === "uploading" || u.status === "paused";
+        return (
+          <div
+            key={u.key}
+            className="card"
+            style={{ padding: "10px 14px", fontSize: 14 }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {u.status === "uploading" && (
+                <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
+              )}
+              {u.status === "paused" && <Pause size={14} style={{ color: "var(--text-med)" }} />}
+              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                {u.name}
+              </span>
+              <span style={{ color: u.status === "error" ? "var(--error)" : "var(--text-med)" }}>
+                {u.status === "uploading" &&
+                  (u.progress === null ? "Uploading…" : `${Math.round(u.progress * 100)}%`)}
+                {u.status === "paused" &&
+                  `Paused${u.progress ? ` · ${Math.round(u.progress * 100)}%` : ""}`}
+                {u.status === "done" && "Done"}
+                {u.status === "error" && (u.error ?? "Failed")}
+              </span>
+              {/* Pause / resume toggle while the upload is running. */}
+              {active && (
+                <button
+                  type="button"
+                  onClick={() => (u.status === "paused" ? onResume(u.key) : onPause(u.key))}
+                  aria-label={u.status === "paused" ? t("upload.resume") : t("upload.pause")}
+                  title={u.status === "paused" ? t("upload.resume") : t("upload.pause")}
+                  style={iconBtnStyle}
+                >
+                  {u.status === "paused" ? <Play size={14} /> : <Pause size={14} />}
+                </button>
+              )}
+              {/* Cancel an in-flight upload, or dismiss a finished/failed row. */}
+              {(active || u.status === "error") && (
+                <button
+                  type="button"
+                  onClick={() => (active ? onCancel(u.key) : onDismiss(u.key))}
+                  aria-label={active ? t("upload.cancel") : t("common.dismiss")}
+                  title={active ? t("upload.cancel") : t("common.dismiss")}
+                  style={iconBtnStyle}
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            {active && u.progress !== null && (
               <div
                 style={{
-                  width: `${u.progress * 100}%`,
-                  height: "100%",
-                  background: "var(--primary)",
-                  transition: "width 150ms linear",
+                  marginTop: 8,
+                  height: 3,
+                  borderRadius: 2,
+                  background: "var(--hairline-strong)",
+                  overflow: "hidden",
                 }}
-              />
-            </div>
-          )}
-        </div>
-      ))}
+              >
+                <div
+                  style={{
+                    width: `${u.progress * 100}%`,
+                    height: "100%",
+                    background: u.status === "paused" ? "var(--text-med)" : "var(--primary)",
+                    transition: "width 150ms linear",
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
+
+const iconBtnStyle: React.CSSProperties = {
+  background: "transparent",
+  border: "none",
+  color: "var(--text-med)",
+  cursor: "pointer",
+  display: "flex",
+  padding: 2,
+};
 
 function FolderCard({
   item,
