@@ -200,7 +200,7 @@ function AppShot() {
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src="/nimbus-app.png"
+        src="/2026-07-26-184324_hyprshot.png"
         alt="The Nimbus dashboard — files, folders, and storage"
         width={1200}
         height={640}
