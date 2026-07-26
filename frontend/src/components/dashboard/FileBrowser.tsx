@@ -675,6 +675,15 @@ export function FileBrowser() {
                           onOpen={() => openItem(file)}
                           onToggleSelect={b.toggleSelected}
                           onDownload={() => void guard(() => b.download(file))}
+                          onResume={(picked) =>
+                            void guard(async () => {
+                              // Drop the stale pending row first so the fresh
+                              // upload keeps the original name (no " (1)" dedupe),
+                              // then re-upload into this same folder.
+                              await b.deleteForever([file.id]);
+                              await b.upload([picked]);
+                            })
+                          }
                           onRename={() => setDialog({ kind: "rename", item: file })}
                           onTrash={() => setDialog({ kind: "trash", items: [file] })}
                           onRestore={() => void guard(() => b.restoreItems([file.id]))}
@@ -2034,9 +2043,8 @@ function FolderCard({
         {item.name}
       </button>
 
-      <span className="row-meta" style={{ flex: 1, color: "var(--text-med)", fontSize: 13 }}>
-        {formatRelativeDate(item.updated_at)}
-      </span>
+      {/* Folders show the name only — the relative date was squeezing long
+          names down to "Do…" in the 200px grid cell. Actions stay. */}
 
       {!readOnly && (
         <OverflowMenu
@@ -2062,6 +2070,49 @@ function FolderCard({
   );
 }
 
+// Resume control for an incomplete upload: a real file <input> overlaid on
+// the button, so the native picker opens from a direct tap (the pattern that
+// finally made mobile uploads reliable) rather than a scripted .click().
+function ResumeButton({ onPick }: { onPick: (file: File) => void }) {
+  return (
+    <span
+      className="icon-btn"
+      title="Resume upload"
+      style={{
+        position: "relative",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 32,
+        height: 32,
+        borderRadius: "var(--radius-sm)",
+        color: "var(--primary)",
+        cursor: "pointer",
+      }}
+    >
+      <RotateCcw size={15} />
+      <input
+        type="file"
+        aria-label="Resume upload"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onPick(file);
+          e.target.value = "";
+        }}
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          opacity: 0,
+          cursor: "pointer",
+          fontSize: 16,
+        }}
+      />
+    </span>
+  );
+}
+
 function FileRow({
   item,
   isSelected,
@@ -2069,6 +2120,7 @@ function FileRow({
   onOpen,
   onToggleSelect,
   onDownload,
+  onResume,
   onRename,
   onTrash,
   onRestore,
@@ -2084,6 +2136,8 @@ function FileRow({
   onOpen: () => void;
   onToggleSelect: (id: string, exclusive?: boolean) => void;
   onDownload: () => void;
+  /** Re-pick the file and finish an incomplete/pending upload. */
+  onResume: (file: File) => void;
   onRename: () => void;
   onTrash: () => void;
   onRestore: () => void;
@@ -2160,13 +2214,17 @@ function FileRow({
           </IconButton>
         ) : (
           <>
-            <IconButton
-              title="Download"
-              onClick={onDownload}
-              disabled={item.status !== "ready"}
-            >
-              <Download size={15} />
-            </IconButton>
+            {item.status === "pending" ? (
+              // An incomplete upload can't resume its old bytes (the browser
+              // lost the File on reload), so "resume" = re-pick the file and
+              // finish it. Overlay <input>, not a scripted click, so it opens
+              // reliably on mobile.
+              <ResumeButton onPick={onResume} />
+            ) : (
+              <IconButton title="Download" onClick={onDownload} disabled={false}>
+                <Download size={15} />
+              </IconButton>
+            )}
             <OverflowMenu
               actions={[
                 {
