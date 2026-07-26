@@ -647,20 +647,35 @@ export const shares = {
  * API, and must not carry the Authorization header — S3 rejects requests
  * that carry both its signature and an unexpected auth header.
  */
+/** Thrown when an upload's XHR is aborted via its AbortSignal — used to
+ * tell a deliberate pause/cancel apart from a genuine network failure. */
+export class UploadAbortedError extends Error {
+  constructor() {
+    super("Upload aborted.");
+    this.name = "UploadAbortedError";
+  }
+}
+
 export function uploadToS3(
   uploadUrl: string,
   file: File | Blob,
   contentType: string | null,
-  onProgress?: (fraction: number) => void
+  onProgress?: (fraction: number) => void,
+  signal?: AbortSignal
 ): Promise<void> {
   // XMLHttpRequest rather than fetch: fetch cannot report upload progress
   // in any browser today (ReadableStream request bodies are still not
   // universally supported), and a multi-gigabyte upload with no progress
   // bar is indistinguishable from a hang.
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new UploadAbortedError());
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", uploadUrl, true);
     if (contentType) xhr.setRequestHeader("Content-Type", contentType);
+
+    const onAbort = () => xhr.abort();
+    signal?.addEventListener("abort", onAbort);
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable && onProgress) {
@@ -668,12 +683,17 @@ export function uploadToS3(
       }
     };
 
-    xhr.onload = () =>
-      xhr.status >= 200 && xhr.status < 300
-        ? resolve()
-        : reject(new ApiError(xhr.status, `Upload failed (${xhr.status}).`));
+    xhr.onload = () => {
+      cleanup();
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        reject(new ApiError(xhr.status, `Upload failed (${xhr.status}).`));
+      }
+    };
 
-    xhr.onerror = () =>
+    xhr.onerror = () => {
+      cleanup();
       reject(
         new ApiError(
           0,
@@ -682,7 +702,11 @@ export function uploadToS3(
             : "Upload failed — you appear to be offline."
         )
       );
-    xhr.onabort = () => reject(new ApiError(0, "Upload cancelled."));
+    };
+    xhr.onabort = () => {
+      cleanup();
+      reject(new UploadAbortedError());
+    };
 
     xhr.send(file);
   });
@@ -698,17 +722,24 @@ export function uploadToS3(
 export function uploadPartToS3(
   uploadUrl: string,
   blob: Blob,
-  onProgress?: (fraction: number) => void
+  onProgress?: (fraction: number) => void,
+  signal?: AbortSignal
 ): Promise<string> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new UploadAbortedError());
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", uploadUrl, true);
+
+    const onAbort = () => xhr.abort();
+    signal?.addEventListener("abort", onAbort);
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable && onProgress) onProgress(event.loaded / event.total);
     };
 
     xhr.onload = () => {
+      cleanup();
       if (xhr.status < 200 || xhr.status >= 300) {
         reject(new ApiError(xhr.status, `Part upload failed (${xhr.status}).`));
         return;
@@ -721,7 +752,8 @@ export function uploadPartToS3(
       resolve(etag);
     };
 
-    xhr.onerror = () =>
+    xhr.onerror = () => {
+      cleanup();
       reject(
         new ApiError(
           0,
@@ -730,7 +762,11 @@ export function uploadPartToS3(
             : "Upload failed — you appear to be offline."
         )
       );
-    xhr.onabort = () => reject(new ApiError(0, "Upload cancelled."));
+    };
+    xhr.onabort = () => {
+      cleanup();
+      reject(new UploadAbortedError());
+    };
 
     xhr.send(blob);
   });

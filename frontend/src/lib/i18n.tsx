@@ -55,6 +55,11 @@ const en: Dict = {
   "common.save": "Save",
   "common.cancel": "Cancel",
   "common.loading": "Loading…",
+  "common.dismiss": "Dismiss",
+  // uploads
+  "upload.pause": "Pause",
+  "upload.resume": "Resume",
+  "upload.cancel": "Cancel upload",
 };
 
 const hi: Dict = {
@@ -90,6 +95,10 @@ const hi: Dict = {
   "common.save": "सहेजें",
   "common.cancel": "रद्द करें",
   "common.loading": "लोड हो रहा है…",
+  "common.dismiss": "खारिज करें",
+  "upload.pause": "रोकें",
+  "upload.resume": "फिर से शुरू करें",
+  "upload.cancel": "अपलोड रद्द करें",
 };
 
 const DICTS: Record<Locale, Dict> = { en, hi };
