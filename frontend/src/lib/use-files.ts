@@ -49,7 +49,11 @@ export interface UploadProgress {
   name: string;
   /** 0-1. Stays null until the browser reports its first progress event. */
   progress: number | null;
-  status: "uploading" | "paused" | "done" | "error";
+  /**
+   * "waiting" = auto-paused on a network drop, retrying itself when the
+   * connection returns (not a failure, and not user-initiated like "paused").
+   */
+  status: "uploading" | "paused" | "waiting" | "done" | "error";
   error?: string;
 }
 
@@ -58,6 +62,8 @@ export interface UploadProgress {
 // for a fresh one on resume, since aborting to pause consumes it.
 interface UploadControl {
   paused: boolean;
+  /** Auto-paused waiting for the network — resumes itself, no user action. */
+  networkWaiting: boolean;
   cancelled: boolean;
   controller: AbortController;
   waiters: (() => void)[];
@@ -85,10 +91,11 @@ const PART_SIZE_BYTES = 16 * 1024 * 1024;
 // network starts queuing them anyway.
 const PART_CONCURRENCY = 4;
 const PART_MAX_ATTEMPTS = 3;
-// A whole single-PUT (small file) re-sent from scratch when the connection
-// drops mid-upload. Kept small because each retry re-uploads the entire
-// file; the point is to survive a transient blip, not a dead network.
-const SINGLE_PUT_MAX_ATTEMPTS = 3;
+// Backoff ceiling while waiting for a dropped connection to return. We keep
+// retrying network failures indefinitely (the upload "waits" rather than
+// failing) but never faster than this, so a genuinely-down server isn't
+// hammered.
+const RECONNECT_MAX_BACKOFF_MS = 30_000;
 
 async function uploadPartWithRetry(
   url: string,
@@ -104,6 +111,9 @@ async function uploadPartWithRetry(
     } catch (err) {
       // A pause/cancel abort must surface at once — never burn retries on it.
       if (err instanceof UploadAbortedError) throw err;
+      // A network drop (status 0) is handled one level up by the reconnect
+      // loop (which waits for the connection); don't quietly eat it here.
+      if (err instanceof ApiError && err.status === 0) throw err;
       lastError = err;
       if (attempt < PART_MAX_ATTEMPTS) {
         await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
@@ -385,6 +395,7 @@ export function useFiles() {
       if (!token) return;
       const ctrl: UploadControl = {
         paused: false,
+        networkWaiting: false,
         cancelled: false,
         controller: new AbortController(),
         waiters: [],
@@ -397,63 +408,78 @@ export function useFiles() {
       const setStatus = (status: UploadProgress["status"]) =>
         setUploads((u) => u.map((p) => (p.key === key ? { ...p, status } : p)));
 
-      // Block here while paused; return promptly if cancelled.
-      const waitWhilePaused = async () => {
-        while (ctrl.paused && !ctrl.cancelled) {
-          setStatus("paused");
-          await new Promise<void>((resolve) => ctrl.waiters.push(resolve));
+      // Sleep up to `ms`, but wake early if the browser comes back online, or
+      // a manual resume/cancel flushes the waiters. Always resolves — the
+      // caller re-checks ctrl state afterwards.
+      const waitBeforeRetry = (ms: number) =>
+        new Promise<void>((resolve) => {
+          let done = false;
+          const finish = () => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            if (typeof window !== "undefined") window.removeEventListener("online", finish);
+            resolve();
+          };
+          const timer = setTimeout(finish, ms);
+          if (typeof window !== "undefined") window.addEventListener("online", finish);
+          ctrl.waiters.push(finish);
+        });
+
+      // Run one network operation with two kinds of resilience:
+      //  - manual pause: block until the user resumes (throw if cancelled);
+      //  - network drop (status 0): mark the upload "waiting" and retry when
+      //    the connection returns — backing off, but never giving up. A lost
+      //    connection pauses an upload, it does not fail it.
+      const withReconnect = async <T>(op: () => Promise<T>): Promise<T> => {
+        let backoff = 1000;
+        for (;;) {
+          while (ctrl.paused && !ctrl.cancelled) {
+            setStatus("paused");
+            await new Promise<void>((resolve) => ctrl.waiters.push(resolve));
+          }
+          if (ctrl.cancelled) throw new UploadAbortedError();
+          ctrl.networkWaiting = false;
+          setStatus("uploading");
+          try {
+            return await op();
+          } catch (err) {
+            if (err instanceof UploadAbortedError) {
+              if (ctrl.cancelled) throw err;
+              continue; // aborted by a manual pause → loop back to the gate
+            }
+            if (err instanceof ApiError && err.status === 0) {
+              // Connection lost — wait for it to return, then retry.
+              ctrl.networkWaiting = true;
+              ctrl.controller = new AbortController();
+              setStatus("waiting");
+              await waitBeforeRetry(navigator.onLine ? backoff : 60_000);
+              backoff = Math.min(backoff * 2, RECONNECT_MAX_BACKOFF_MS);
+              continue;
+            }
+            throw err;
+          }
         }
-        if (!ctrl.cancelled) setStatus("uploading");
       };
 
       try {
         const contentType = file.type || "application/octet-stream";
 
         if (file.size < MULTIPART_THRESHOLD_BYTES) {
-          const { item, upload_url } = await filesApi.requestUploadUrl(
-            token,
-            file.name,
-            parentId,
-            contentType
+          const { item, upload_url } = await withReconnect(() =>
+            filesApi.requestUploadUrl(token, file.name, parentId, contentType)
           );
-          // A single PUT can't resume mid-stream, so pausing aborts it and
-          // resuming re-PUTs the whole file (the presigned URL stays valid
-          // for repeated PUTs to the same key). Loop until it lands.
-          let putAttempt = 0;
-          for (;;) {
-            await waitWhilePaused();
-            if (ctrl.cancelled) throw new UploadAbortedError();
-            try {
-              await uploadToS3(upload_url, file, contentType, setProgress, ctrl.controller.signal);
-              break;
-            } catch (err) {
-              if (err instanceof UploadAbortedError && !ctrl.cancelled) continue; // paused → retry
-              // A dropped connection mid-PUT (status 0) is common on slow
-              // mobile links — retry the whole PUT a few times with backoff
-              // before surfacing it, the same resilience the multipart parts
-              // already get. Real HTTP errors (4xx/5xx) are not retried.
-              if (
-                err instanceof ApiError &&
-                err.status === 0 &&
-                putAttempt < SINGLE_PUT_MAX_ATTEMPTS - 1
-              ) {
-                putAttempt++;
-                setProgress(0);
-                await new Promise((r) => setTimeout(r, 800 * putAttempt));
-                continue;
-              }
-              throw err;
-            }
-          }
-          await filesApi.completeUpload(token, item.id);
+          // A single PUT can't resume mid-stream, so a drop re-PUTs the whole
+          // file (the presigned URL stays valid for repeated PUTs).
+          await withReconnect(() => {
+            setProgress(0);
+            return uploadToS3(upload_url, file, contentType, setProgress, ctrl.controller.signal);
+          });
+          await withReconnect(() => filesApi.completeUpload(token, item.id));
         } else {
           const partCount = Math.ceil(file.size / PART_SIZE_BYTES);
-          const { item, upload_id, part_urls } = await filesApi.initiateMultipartUpload(
-            token,
-            file.name,
-            parentId,
-            contentType,
-            partCount
+          const { item, upload_id, part_urls } = await withReconnect(() =>
+            filesApi.initiateMultipartUpload(token, file.name, parentId, contentType, partCount)
           );
           ctrl.multipart = { itemId: item.id, uploadId: upload_id };
 
@@ -466,21 +492,21 @@ export function useFiles() {
             let nextPart = 0;
             const worker = async () => {
               while (nextPart < partCount) {
-                // Multipart pauses cleanly between parts — already-uploaded
-                // parts are kept, so resume genuinely continues.
-                await waitWhilePaused();
-                if (ctrl.cancelled) throw new UploadAbortedError();
                 const i = nextPart++;
                 const start = i * PART_SIZE_BYTES;
                 const blob = file.slice(start, Math.min(start + PART_SIZE_BYTES, file.size));
-                const etag = await uploadPartWithRetry(
-                  part_urls[i],
-                  blob,
-                  (fraction) => {
-                    partFractions[i] = fraction;
-                    reportOverall();
-                  },
-                  () => ctrl.controller.signal
+                // Each part is network-resilient and keeps completed parts,
+                // so a drop pauses at the current part and resumes there.
+                const etag = await withReconnect(() =>
+                  uploadPartWithRetry(
+                    part_urls[i],
+                    blob,
+                    (fraction) => {
+                      partFractions[i] = fraction;
+                      reportOverall();
+                    },
+                    () => ctrl.controller.signal
+                  )
                 );
                 partFractions[i] = 1;
                 reportOverall();
@@ -490,9 +516,12 @@ export function useFiles() {
             await Promise.all(
               Array.from({ length: Math.min(PART_CONCURRENCY, partCount) }, worker)
             );
-            await filesApi.completeMultipartUpload(token, item.id, upload_id, parts);
+            await withReconnect(() =>
+              filesApi.completeMultipartUpload(token, item.id, upload_id, parts)
+            );
           } catch (err) {
-            // Cancelled OR failed: free the server-side parts either way.
+            // Only a real failure/cancel reaches here (a network wait never
+            // throws) — free the server-side parts either way.
             await filesApi.abortMultipartUpload(token, item.id, upload_id).catch(() => {});
             throw err;
           }
@@ -523,14 +552,20 @@ export function useFiles() {
     const ctrl = uploadControls.current.get(key);
     if (!ctrl || ctrl.paused || ctrl.cancelled) return;
     ctrl.paused = true;
-    // Abort the in-flight request(s); the upload loop will wait for resume.
+    // Abort the in-flight request(s) and wake any network-wait, so the loop
+    // re-checks and parks on the pause gate.
     ctrl.controller.abort();
+    const waiters = ctrl.waiters;
+    ctrl.waiters = [];
+    waiters.forEach((w) => w());
   }, []);
 
   const resumeUpload = useCallback((key: string) => {
     const ctrl = uploadControls.current.get(key);
-    if (!ctrl || !ctrl.paused) return;
+    // Resume covers both a manual pause and an auto network-wait ("retry now").
+    if (!ctrl || (!ctrl.paused && !ctrl.networkWaiting)) return;
     ctrl.paused = false;
+    ctrl.networkWaiting = false;
     // Fresh controller — the old one was consumed by the pause abort.
     ctrl.controller = new AbortController();
     const waiters = ctrl.waiters;
