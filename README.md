@@ -86,7 +86,7 @@ it, or contribute. But you don't need to know any of that to use it —
 |:--:|:--:|
 | <img src="docs/screenshots/my-cloud.png" width="420"/><br/><sub><b>My Cloud</b> — files, folders, and storage at a glance</sub> | <img src="docs/screenshots/activity.png" width="420"/><br/><sub><b>Activity</b> — a timeline of everything you've done</sub> |
 | <img src="docs/screenshots/shared-with-me.png" width="420"/><br/><sub><b>Shared with me</b> — folders others sent your way</sub> | <img src="docs/screenshots/trash.png" width="420"/><br/><sub><b>Trash</b> — soft-deleted, restorable until purged</sub> |
-| <img src="docs/screenshots/settings.png" width="420"/><br/><sub><b>Settings</b> — theme, language, and preferences</sub> | |
+| <img src="docs/screenshots/settings.png" width="420"/><br/><sub><b>Settings</b> — theme, language, and preferences</sub> | <img src="frontend/public/2026-07-26-231351_hyprshot.png"/><br/><sub><b>Trash</b> - resumable uploadation without any issues |
 
 ---
 
@@ -211,7 +211,6 @@ readable tour of how things were built.
 ## 📄 License
 
 Licensed under the [Apache License 2.0](LICENSE).
-
 ---
 <div align="center">
 <br/>
